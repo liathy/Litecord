@@ -29,6 +29,32 @@ pub fn clean_discord_whitespace(input: &str) -> String {
 /// Converts raw Discord Markdown syntax into clean readable plain text.
 /// Applied in the correct order so that code blocks are parsed first (immune
 /// to inner formatting) and inline formatting runs last.
+/// `@name` of a mentioned user, from what this client knows about them.
+fn mention_label(user_id: &str) -> String {
+    let Ok(id) = user_id.parse::<u64>() else { return "@usuário".to_string() };
+    let name = crate::gateway::get_user_name(id);
+    if name.is_empty() || name.starts_with("Participante #") {
+        "@usuário".to_string()
+    } else {
+        format!("@{name}")
+    }
+}
+
+/// Discord sends the people a message mentions with it, including their server nickname.
+fn register_mentions(message: &Value) {
+    for user in message["mentions"].as_array().into_iter().flatten() {
+        let Some(id) = user["id"].as_str().and_then(|id| id.parse::<u64>().ok()) else { continue };
+        let nick = user["member"]["nick"].as_str().filter(|nick| !nick.is_empty());
+        let known = crate::gateway::get_user_name(id);
+        let unknown = known.is_empty() || known.starts_with("Participante #");
+        let account_name = user["global_name"].as_str().filter(|name| !name.is_empty()).or_else(|| user["username"].as_str());
+        if let Some(name) = nick.or(if unknown { account_name } else { None }) {
+            crate::gateway::register_user_name(id, name.to_owned());
+        }
+        crate::gateway::register_user_avatar(id, user["avatar"].as_str().unwrap_or(""));
+    }
+}
+
 pub fn parse_discord_markdown(input: &str) -> String {
     let cleaned_input = clean_discord_whitespace(input);
     let mut output_lines: Vec<String> = Vec::new();
@@ -210,12 +236,12 @@ fn apply_inline_markdown(input: &str) -> String {
     });
 
     // <@!USER_ID> and <@USER_ID> — user mentions
-    s = regex_replace_simple(&s, "<@!", ">", |_inner| "@usuário".to_string());
+    s = regex_replace_simple(&s, "<@!", ">", mention_label);
     s = regex_replace_simple(&s, "<@&", ">", |_inner| "@cargo".to_string());
     s = regex_replace_simple(&s, "<@", ">", |inner| {
         // Only if purely numeric (user ID)
         if inner.chars().all(|c| c.is_ascii_digit()) {
-            "@usuário".to_string()
+            mention_label(inner)
         } else {
             format!("<@{}>", inner)
         }
@@ -579,6 +605,7 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
             if let Some(idx) = next_bracket { candidates.push((idx, "bracket")); }
             if let Some(idx) = next_cmd { candidates.push((idx, "cmd")); }
             if let Some((idx, _)) = next_emoji { candidates.push((idx, "emoji")); }
+            if let Some(idx) = rem.find("<@") { candidates.push((idx, "mention")); }
             if let Some(idx) = next_raw_url { candidates.push((idx, "raw_url")); }
             // A lone emoji is shown large; in a short plain line each one becomes a Twemoji
             // image. Longer prose keeps the system font, which wraps.
@@ -740,6 +767,47 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
                         command_name: String::new(),
                     });
                     rem = &rem[slice_len..];
+                }
+                "mention" => {
+                    let before = &rem[..first_idx];
+                    let after_tag = &rem[first_idx + 2..];
+                    let body = after_tag.strip_prefix('!').unwrap_or(after_tag);
+                    let plain = |text: String| MessageBlockData {
+                        text,
+                        is_link: false,
+                        is_command: false,
+                        is_emoji: false,
+                        emoji_id: String::new(),
+                        url: String::new(),
+                        command_name: String::new(),
+                    };
+                    if let Some(end) = body.find('>') {
+                        let id = &body[..end];
+                        if !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) {
+                            if !before.is_empty() {
+                                line_blocks.push(plain(parse_discord_markdown(before)));
+                            }
+                            line_blocks.push(MessageBlockData {
+                                text: mention_label(id),
+                                is_link: true,
+                                is_command: false,
+                                is_emoji: false,
+                                emoji_id: String::new(),
+                                url: id.to_string(),
+                                command_name: "@mention".to_string(),
+                            });
+                            is_first_block = false;
+                            rem = &body[end + 1..];
+                            continue;
+                        }
+                        // A role or another tag stays as its readable text.
+                        let whole = first_idx + 2 + (after_tag.len() - body.len()) + end + 1;
+                        line_blocks.push(plain(parse_discord_markdown(&rem[..whole])));
+                        rem = &rem[whole..];
+                        continue;
+                    }
+                    line_blocks.push(plain(rem[..first_idx + 2].to_string()));
+                    rem = &rem[first_idx + 2..];
                 }
                 "emoji" => {
                     let before = &rem[..first_idx];
@@ -1199,6 +1267,7 @@ pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<Mess
     let mut reply_content = String::new();
     let mut reply_command = String::new();
     let msg_type = m["type"].as_u64().unwrap_or(0);
+    register_mentions(m);
 
     // Extract embed color (first embed's color if present)
     let embed_color = m["embeds"].as_array()

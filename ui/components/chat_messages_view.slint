@@ -102,6 +102,29 @@ export struct ChatMessage {
     invites: [InviteCard],
 }
 
+component MentionPill inherits Rectangle {
+    in property <string> label;
+    callback clicked();
+    height: 22px;
+    width: mention_text.preferred-width + 6px;
+    border-radius: 3px;
+    background: mention_ta.has-hover ? AppTheme.accent : AppTheme.accent-faint;
+    animate background { duration: 100ms; easing: ease-out; }
+    mention_text := Text {
+        text: root.label;
+        color: mention_ta.has-hover ? AppTheme.text-on-accent : AppTheme.accent-soft;
+        font-family: ChatTypography.family;
+        font-size: ChatTypography.body-size;
+        font-weight: 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    mention_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component ChatMessagesView inherits Rectangle {
     in-out property <[ChatMessage]> messages;
     in-out property <bool> has_more_older_messages: false;
@@ -435,7 +458,15 @@ export component ChatMessagesView inherits Rectangle {
                             }
 
                             // Case 2: Standalone Link Line (e.g. [Song Title](url)) -> Blue link with icon & click
-                            if line.blocks.length == 1 && line.blocks[0].is_link: HorizontalLayout {
+                            if line.blocks.length == 1 && line.blocks[0].command_name == "@mention": HorizontalLayout {
+                                alignment: start;
+                                MentionPill {
+                                    label: line.blocks[0].text;
+                                    clicked => { root.open_profile(line.blocks[0].url); }
+                                }
+                            }
+
+                            if line.blocks.length == 1 && line.blocks[0].is_link && line.blocks[0].command_name != "@mention": HorizontalLayout {
                                 alignment: start;
                                 Rectangle {
                                     background: block_ta_single.has-hover ? AppTheme.surface-reply : transparent;
@@ -563,7 +594,15 @@ export component ChatMessagesView inherits Rectangle {
                                         }
                                     }
 
-                                    if block.is_link: VerticalLayout {
+                                    if block.command_name == "@mention": VerticalLayout {
+                                        alignment: center;
+                                        MentionPill {
+                                            label: block.text;
+                                            clicked => { root.open_profile(block.url); }
+                                        }
+                                    }
+
+                                    if block.is_link && block.command_name != "@mention": VerticalLayout {
                                         alignment: center;
                                         Rectangle {
                                             height: 22px;
@@ -681,7 +720,15 @@ export component ChatMessagesView inherits Rectangle {
                                             wrap: word-wrap;
                                         }
 
-                                        if line.blocks.length == 1 && line.blocks[0].is_link: HorizontalLayout {
+                                        if line.blocks.length == 1 && line.blocks[0].command_name == "@mention": HorizontalLayout {
+                                alignment: start;
+                                MentionPill {
+                                    label: line.blocks[0].text;
+                                    clicked => { root.open_profile(line.blocks[0].url); }
+                                }
+                            }
+
+                            if line.blocks.length == 1 && line.blocks[0].is_link && line.blocks[0].command_name != "@mention": HorizontalLayout {
                                             alignment: start;
                                             Rectangle {
                                                 background: eblock_ta_single.has-hover ? AppTheme.surface-reply : transparent;
@@ -783,7 +830,15 @@ export component ChatMessagesView inherits Rectangle {
                                                     }
                                                 }
 
-                                                if block.is_link: VerticalLayout {
+                                                if block.command_name == "@mention": VerticalLayout {
+                                        alignment: center;
+                                        MentionPill {
+                                            label: block.text;
+                                            clicked => { root.open_profile(block.url); }
+                                        }
+                                    }
+
+                                    if block.is_link && block.command_name != "@mention": VerticalLayout {
                                                     alignment: center;
                                                     Rectangle {
                                                         height: 20px;
