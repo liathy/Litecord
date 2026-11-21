@@ -551,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak_emoji_picker = app_weak.clone();
     app.on_emoji_picker_opened(move || {
         if let Some(ui) = app_weak_emoji_picker.upgrade() {
-            crate::ui::gif_picker::hydrate_emoji_picker(&ui);
+            crate::ui::expression_picker::open_emoji(&ui);
         }
     });
     let app_weak_gif_open = app_weak.clone();
@@ -4490,6 +4490,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             crate::ui::chat_actions::action(&ui, http, name.as_str(), id.as_str(), extra.as_str(), x, y);
         }
     });
+    let app_weak_emoji_search = app_weak.clone();
+    app.on_emoji_search(move |query| {
+        if let Some(ui) = app_weak_emoji_search.upgrade() {
+            crate::ui::expression_picker::build_emoji(&ui, query.as_str());
+        }
+    });
+    let app_weak_load_emoji = app_weak.clone();
+    app.on_load_picker_emoji(move |id| {
+        if let Some(ui) = app_weak_load_emoji.upgrade() {
+            crate::ui::expression_picker::load_emoji(&ui, id.as_str());
+        }
+    });
+    let app_weak_sticker_source = app_weak.clone();
+    let http_sticker_source = Arc::clone(&http_client);
+    app.on_pick_sticker_source(move |source| {
+        if let Some(ui) = app_weak_sticker_source.upgrade() {
+            let http = http_sticker_source.lock().unwrap().as_ref().cloned();
+            crate::ui::expression_picker::open_stickers(&ui, http, Some(source.as_str()));
+        }
+    });
+    let app_weak_sticker_search = app_weak.clone();
+    app.on_sticker_search(move |query| {
+        if let Some(ui) = app_weak_sticker_search.upgrade() {
+            crate::ui::expression_picker::search_stickers(&ui, query.as_str());
+        }
+    });
+    let app_weak_frequent = app_weak.clone();
+    let http_frequent = Arc::clone(&http_client);
+    app.on_refresh_frequent(move || {
+        if let Some(ui) = app_weak_frequent.upgrade() {
+            let http = http_frequent.lock().unwrap().as_ref().cloned();
+            crate::ui::expression_picker::refresh_frequent(&ui, http);
+        }
+    });
+
     let app_weak_pick_mention = app_weak.clone();
     app.on_pick_mention(move |index| {
         if let Some(ui) = app_weak_pick_mention.upgrade() {
@@ -4501,7 +4536,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_open_stickers(move || {
         if let Some(ui) = app_weak_stickers.upgrade() {
             let http = http_stickers.lock().unwrap().as_ref().cloned();
-            crate::ui::gif_picker::open_stickers(&ui, http);
+            crate::ui::expression_picker::open_stickers(&ui, http, None);
         }
     });
     let app_weak_send_sticker = app_weak.clone();
@@ -4527,16 +4562,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let app_weak_profile_dm = app_weak.clone();
     let http_profile_dm = Arc::clone(&http_client);
+    let active_channel_profile_dm = Arc::clone(&active_channel_id);
     app.on_profile_send_dm(move |text| {
         let Some(ui) = app_weak_profile_dm.upgrade() else { return };
         let user = ui.get_profile_user_id().to_string();
         let Some(http) = http_profile_dm.lock().unwrap().as_ref().cloned() else { return };
         let content = text.to_string();
         ui.set_show_profile(false);
+        let app = app_weak_profile_dm.clone();
+        let active = Arc::clone(&active_channel_profile_dm);
         tokio::spawn(async move {
             match http.open_dm(&user).await {
                 Ok(channel) => {
                     let _ = http.send_message(&channel, &content).await;
+                    crate::ui::dm_close::take_closed(&channel);
+                    *active.lock().unwrap() = channel;
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = app.upgrade() {
+                            ui.set_is_voice_focused(false);
+                            ui.set_active_guild_id("@me".into());
+                            ui.invoke_select_guild("@me".into());
+                        }
+                    });
                 }
                 Err(error) => log::warn!("DM não aberta: {}", error),
             }
@@ -5079,6 +5126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             ui.set_is_logged_in(true);
                             ui.set_user_tag(user_tag.into());
                             ui.set_titlebar_error("".into());
+                            ui.invoke_refresh_frequent();
                             ui.set_login_alert_message("".into());
                         }
                     });

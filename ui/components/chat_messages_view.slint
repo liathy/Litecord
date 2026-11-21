@@ -256,18 +256,21 @@ export component ChatMessagesView inherits Rectangle {
                 row_hover := TouchArea {
                     width: 100%;
                     height: 100%;
+                    changed has-hover => {
+                        if (self.has-hover) { toolbar_ready = true; }
+                    }
                 }
 
                 // Group headers already carry their full timestamp beside the name;
                 // the gutter timestamp is for compact continuation rows only.
-                property <bool> toolbar_hovered: false;
-                if (row_hover.has-hover || toolbar_hovered) && msg.id != "": toolbar := MessageToolbar {
+                property <bool> toolbar_ready: false;
+                if toolbar_ready && msg.id != "": MessageToolbar {
+                    visible: row_hover.has-hover || self.hovered;
                     x: parent.width - self.width - 12px;
                     y: -14px;
                     z: 20;
                     quick: root.quick_reactions;
                     is_own: msg.is_own;
-                    changed hovered => { toolbar_hovered = self.hovered; }
                     action(name, extra, x, y) => { root.message_action(name, msg.id, extra, x, y); }
                 }
 

@@ -2,6 +2,7 @@
 
 pub mod chat_actions;
 pub mod dm_close;
+pub mod expression_picker;
 pub mod file_upload;
 pub mod gif_player;
 pub mod navigation;

@@ -151,6 +151,10 @@ fn show_preview(ui: &AppWindow, url: &str, preview: Image) {
 }
 
 pub(crate) async fn fetch_preview(url: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    fetch_image(url, PREVIEW_WIDTH, PREVIEW_HEIGHT).await
+}
+
+pub(crate) async fn fetch_image(url: &str, max_width: u32, max_height: u32) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     // Not the Discord client: this request goes to the GIF host and must not carry the token.
     let response = crate::utils::network_settings::shared_http_client().get(url).send().await.ok()?;
     if !response.status().is_success() || response.content_length().unwrap_or(0) > MAX_PREVIEW_BYTES as u64 {
@@ -165,7 +169,7 @@ pub(crate) async fn fetch_preview(url: &str) -> Option<SharedPixelBuffer<Rgba8Pi
         if decoded.width() > MAX_PREVIEW_SIDE || decoded.height() > MAX_PREVIEW_SIDE {
             return None;
         }
-        let small = decoded.thumbnail(PREVIEW_WIDTH, PREVIEW_HEIGHT).to_rgba8();
+        let small = decoded.thumbnail(max_width, max_height).to_rgba8();
         let (width, height) = small.dimensions();
         Some(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(small.as_raw(), width, height))
     })
@@ -332,7 +336,7 @@ pub fn hydrate_emoji_picker(ui: &AppWindow) {
                     item
                 })
                 .collect();
-            EmojiRow { emojis: ModelRc::new(VecModel::from(items)) }
+            EmojiRow { header: "".into(), emojis: ModelRc::new(VecModel::from(items)) }
         })
         .collect();
 
@@ -358,11 +362,11 @@ pub fn hydrate_emoji_picker(ui: &AppWindow) {
                         category: "server".into(),
                         is_custom: true,
                         emoji_id: emoji.id.as_str().into(),
-                        img,
+                        img, locked: false,
                     }
                 })
                 .collect();
-            EmojiRow { emojis: ModelRc::new(VecModel::from(items)) }
+            EmojiRow { header: "".into(), emojis: ModelRc::new(VecModel::from(items)) }
         })
         .collect();
     // The open server's emojis come first, as they are the ones used most here.

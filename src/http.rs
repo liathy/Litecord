@@ -522,11 +522,21 @@ impl DiscordHttpClient {
     /// A Discord API call that answers with JSON or nothing.
     pub async fn discord_call(&self, method: reqwest::Method, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
         let url = format!("https://discord.com/api/v9{path}");
-        let mut request = self.client.request(method, &url);
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
-        let response = request.send().await.map_err(|e| format!("network: {e}"))?;
+        let mut attempts = 0;
+        let response = loop {
+            let mut request = self.client.request(method.clone(), &url);
+            if let Some(body) = &body {
+                request = request.json(body);
+            }
+            let response = request.send().await.map_err(|e| format!("network: {e}"))?;
+            if response.status().as_u16() != 429 || attempts >= 2 {
+                break response;
+            }
+            attempts += 1;
+            let limit: serde_json::Value = response.json().await.unwrap_or_default();
+            let wait = limit["retry_after"].as_f64().unwrap_or(2.0).clamp(0.1, 15.0);
+            tokio::time::sleep(std::time::Duration::from_secs_f64(wait + 0.1)).await;
+        };
         let status = response.status();
         if !status.is_success() {
             return Err(format!("HTTP {}", status.as_u16()));

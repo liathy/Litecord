@@ -211,6 +211,24 @@ fn quick_rows(app: &slint::Weak<AppWindow>) -> Vec<MessageReaction> {
         .collect()
 }
 
+/// The account's most used emoji on the toolbar, filled with defaults if it has few.
+pub fn set_quick_reactions(ui: &AppWindow, frequent: Vec<(String, String, String)>) {
+    let app = ui.as_weak();
+    let mut rows: Vec<MessageReaction> = frequent
+        .into_iter()
+        .map(|(key, label, emoji_id)| row(&Reaction { key, label, emoji_id, count: 0, me: false }, &app))
+        .collect();
+    for fallback in quick_rows(&app) {
+        if rows.len() >= QUICK_REACTIONS.len() {
+            break;
+        }
+        if !rows.iter().any(|item| item.key == fallback.key) {
+            rows.push(fallback);
+        }
+    }
+    ui.set_quick_reactions(ModelRc::new(VecModel::from(rows)));
+}
+
 pub fn install(ui: &AppWindow) {
     *APP.lock().unwrap_or_else(|e| e.into_inner()) = Some(ui.as_weak());
     ui.set_quick_reactions(ModelRc::new(VecModel::from(quick_rows(&ui.as_weak()))));
@@ -516,7 +534,7 @@ fn write_bytes(out: &mut Vec<u8>, field: u64, bytes: &[u8]) {
 }
 
 /// One field of a message: number, its raw bytes with the key, and its payload if it has one.
-fn next_field<'a>(buf: &'a [u8], at: &mut usize) -> Option<(u64, &'a [u8], Option<&'a [u8]>)> {
+pub(crate) fn next_field<'a>(buf: &'a [u8], at: &mut usize) -> Option<(u64, &'a [u8], Option<&'a [u8]>)> {
     let start = *at;
     let key = read_varint(buf, at)?;
     let payload = match key & 7 {
@@ -541,6 +559,21 @@ fn next_field<'a>(buf: &'a [u8], at: &mut usize) -> Option<(u64, &'a [u8], Optio
         _ => return None,
     };
     Some((key >> 3, buf.get(start..*at)?, payload))
+}
+
+/// The first value of a varint field of a message.
+pub(crate) fn read_field_varint(message: &[u8], wanted: u64) -> Option<u64> {
+    let mut at = 0;
+    while at < message.len() {
+        let start = at;
+        let (field, _, payload) = next_field(message, &mut at)?;
+        if field == wanted && payload.is_none() {
+            let mut value = start;
+            read_varint(message, &mut value)?;
+            return read_varint(message, &mut value);
+        }
+    }
+    None
 }
 
 fn entry_info(entry: &[u8]) -> Option<(String, u64)> {
@@ -618,44 +651,98 @@ fn edit_favorites(settings: &[u8], url: &str, src: &str) -> Option<(Vec<u8>, boo
     Some((out, !removed))
 }
 
+fn show_favorite(ui: &AppWindow, animation: &str, on: bool) {
+    let messages = ui.get_messages();
+    for index in 0..messages.row_count() {
+        let Some(message) = messages.row_data(index) else { continue };
+        for at in 0..message.attachments.row_count() {
+            if let Some(mut attachment) = message.attachments.row_data(at).filter(|a| a.url == animation) {
+                attachment.is_favorite = on;
+                message.attachments.set_row_data(at, attachment);
+            }
+        }
+    }
+}
+
+/// What each changed GIF should end up as: key, animation link, favorited.
+static FAVORITE_CHANGES: Mutex<Vec<(String, String, bool)>> = Mutex::new(Vec::new());
+static FAVORITE_SAVING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const FAVORITE_SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(1200);
+
 fn toggle_favorite(ui: &AppWindow, http: DiscordHttpClient, animation: String) {
+    let (key, on) = with_store(|store| {
+        let key = favorite_key(store, &animation);
+        let on = !store.favorites.contains(&key);
+        if on {
+            store.favorites.insert(key.clone());
+        } else {
+            store.favorites.remove(&key);
+        }
+        (key, on)
+    });
+    show_favorite(ui, &animation, on);
+    {
+        let mut changes = FAVORITE_CHANGES.lock().unwrap_or_else(|e| e.into_inner());
+        changes.retain(|(known, _, _)| *known != key);
+        changes.push((key, animation, on));
+    }
+    if FAVORITE_SAVING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
     let app = ui.as_weak();
-    let key = with_store(|store| favorite_key(store, &animation));
     tokio::spawn(async move {
         use base64::Engine;
         let engine = base64::engine::general_purpose::STANDARD;
-        let result: Result<bool, String> = async {
-            let body = http.discord_call(Method::GET, "/users/@me/settings-proto/2", None).await?;
-            let current = engine.decode(body["settings"].as_str().ok_or("no settings")?).map_err(|e| e.to_string())?;
-            let (updated, added) = edit_favorites(&current, &key, &animation).ok_or("settings could not be read")?;
-            http.discord_call(Method::PATCH, "/users/@me/settings-proto/2", Some(json!({ "settings": engine.encode(updated) }))).await?;
-            Ok(added)
-        }
-        .await;
-        match result {
-            Ok(added) => {
-                with_store(|store| {
-                    if added {
-                        store.favorites.insert(key.clone());
-                    } else {
-                        store.favorites.remove(&key);
+        loop {
+            tokio::time::sleep(FAVORITE_SAVE_DELAY).await;
+            let batch = std::mem::take(&mut *FAVORITE_CHANGES.lock().unwrap_or_else(|e| e.into_inner()));
+            if batch.is_empty() {
+                FAVORITE_SAVING.store(false, std::sync::atomic::Ordering::SeqCst);
+                if FAVORITE_CHANGES.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
+                    || FAVORITE_SAVING.swap(true, std::sync::atomic::Ordering::SeqCst)
+                {
+                    return;
+                }
+                continue;
+            }
+            let result: Result<(), String> = async {
+                let body = http.discord_call(Method::GET, "/users/@me/settings-proto/2", None).await?;
+                let mut current = engine.decode(body["settings"].as_str().ok_or("no settings")?).map_err(|e| e.to_string())?;
+                let mut changed = false;
+                for (key, animation, on) in &batch {
+                    let (updated, added) = edit_favorites(&current, key, animation).ok_or("settings could not be read")?;
+                    if added == *on {
+                        current = updated;
+                        changed = true;
                     }
-                });
-                let _ = slint::invoke_from_event_loop(move || {
-                    let Some(ui) = app.upgrade() else { return };
-                    let messages = ui.get_messages();
-                    for index in 0..messages.row_count() {
-                        let Some(message) = messages.row_data(index) else { continue };
-                        for at in 0..message.attachments.row_count() {
-                            if let Some(mut attachment) = message.attachments.row_data(at).filter(|a| a.url == animation.as_str()) {
-                                attachment.is_favorite = added;
-                                message.attachments.set_row_data(at, attachment);
-                            }
+                }
+                if changed {
+                    http.discord_call(Method::PATCH, "/users/@me/settings-proto/2", Some(json!({ "settings": engine.encode(current) }))).await?;
+                }
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                with_store(|store| {
+                    for (key, _, on) in &batch {
+                        if *on {
+                            store.favorites.remove(key);
+                        } else {
+                            store.favorites.insert(key.clone());
                         }
                     }
                 });
+                let reverted = batch.clone();
+                let app_revert = app.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = app_revert.upgrade() {
+                        for (_, animation, on) in &reverted {
+                            show_favorite(&ui, animation, !on);
+                        }
+                    }
+                });
+                show_error(&app, format!("Couldn't update favorites ({error})"));
             }
-            Err(error) => show_error(&app, format!("Couldn't update favorites ({error})")),
         }
     });
 }

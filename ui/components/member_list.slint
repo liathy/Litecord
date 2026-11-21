@@ -163,6 +163,8 @@ export component ProfileCard inherits Rectangle {
     in property <color> accent;
     in property <[ProfileRole]> roles;
     in property <string> mutual;
+    in property <image> banner;
+    in property <bool> has_banner;
     in property <bool> can_message: true;
     callback close();
     callback send_dm(string);
@@ -191,6 +193,13 @@ export component ProfileCard inherits Rectangle {
             Rectangle {
                 height: 105px;
                 background: root.accent;
+                clip: true;
+                if root.has_banner: Image {
+                    width: 100%;
+                    height: 100%;
+                    source: root.banner;
+                    image-fit: cover;
+                }
             }
 
             HorizontalLayout {

@@ -164,6 +164,16 @@ impl MemberRows {
                 .map(|count| count + 1)
                 .sum();
             self.entries.resize((total as usize).min(MAX_ROWS), None);
+            for group in groups {
+                let (Some(id), Some(count)) = (group["id"].as_str(), group["count"].as_u64()) else { continue };
+                for entry in self.entries.iter_mut().flatten() {
+                    if let Entry::Group { id: known, count: shown } = entry {
+                        if known == id {
+                            *shown = count;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -216,6 +226,7 @@ pub struct Profile {
     pub accent: Option<u32>,
     pub role_ids: Vec<String>,
     pub mutual: String,
+    pub banner_url: String,
 }
 
 /// Reads `/users/{id}/profile`, or a plain user object. The server's profile wins.
@@ -250,8 +261,23 @@ pub fn parse_profile(body: &Value) -> Option<Profile> {
             .map(|roles| roles.iter().filter_map(|r| r.as_str().map(str::to_owned)).collect())
             .unwrap_or_default(),
         mutual: mutual_text(body),
+        banner_url: banner_url(&id, body, user),
         id,
     })
+}
+
+fn banner_url(id: &str, body: &Value, user: &Value) -> String {
+    let guild = body["guild_member_profile"]["guild_id"].as_str().unwrap_or("");
+    let safe = |hash: &str| crate::ui::message_grouping::valid_avatar_hash(hash);
+    if let Some(hash) = body["guild_member_profile"]["banner"].as_str().filter(|hash| safe(hash) && !guild.is_empty()) {
+        return format!("https://cdn.discordapp.com/guilds/{guild}/users/{id}/banners/{hash}.png?size=600");
+    }
+    body["user_profile"]["banner"]
+        .as_str()
+        .or_else(|| user["banner"].as_str())
+        .filter(|hash| safe(hash))
+        .map(|hash| format!("https://cdn.discordapp.com/banners/{id}/{hash}.png?size=600"))
+        .unwrap_or_default()
 }
 
 fn mutual_text(body: &Value) -> String {
@@ -535,6 +561,7 @@ pub fn open_profile(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: St
     let known = crate::gateway::get_user_name(user_id.parse().unwrap_or(0));
     show_profile(ui, &Profile { display_name: known, ..Default::default() }, &HashMap::new());
     ui.set_profile_user_id(user_id.as_str().into());
+    ui.set_profile_has_banner(false);
     ui.set_profile_loading(true);
     ui.set_show_profile(true);
 
@@ -553,6 +580,20 @@ pub fn open_profile(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: St
                 ui.set_profile_loading(false);
                 if let Some(profile) = profile {
                     show_profile(&ui, &profile, &roles);
+                    if !profile.banner_url.is_empty() {
+                        let (app, url) = (ui.as_weak(), profile.banner_url.clone());
+                        tokio::spawn(async move {
+                            let Some(buffer) = crate::ui::gif_picker::fetch_image(&url, 720, 280).await else { return };
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if PROFILE_REQUEST.load(Ordering::SeqCst) == request {
+                                    if let Some(ui) = app.upgrade() {
+                                        ui.set_profile_banner(slint::Image::from_rgba8(buffer));
+                                        ui.set_profile_has_banner(true);
+                                    }
+                                }
+                            });
+                        });
+                    }
                 }
             }
         });
@@ -620,6 +661,16 @@ mod tests {
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("a")] }] }));
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "UPDATE", "index": 0, "item": member("z") }] }));
         assert_eq!(ids(&rows), ["z"]);
+    }
+
+    #[test]
+    fn group_rows_use_the_totals_of_the_update() {
+        let mut rows = MemberRows::default();
+        rows.apply(&json!({
+            "groups": [{ "id": "online", "count": 2 }, { "id": "offline", "count": 7 }],
+            "ops": [{ "op": "SYNC", "range": [0, 99], "items": [{ "group": { "id": "offline" } }] }]
+        }));
+        assert_eq!(rows.entries[0], Some(Entry::Group { id: "offline".into(), count: 7 }));
     }
 
     #[test]

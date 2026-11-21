@@ -34,10 +34,22 @@ export struct EmojiPickerItem {
     is_custom: bool,
     emoji_id: string,
     img: image,
+    locked: bool,
 }
 
 export struct EmojiRow {
+    header: string,
     emojis: [EmojiPickerItem],
+}
+
+export struct PickerRail {
+    id: string,
+    name: string,
+    initial: string,
+    icon: image,
+    has_icon: bool,
+    is_recent: bool,
+    row: int,
 }
 
 export struct PendingFile {
@@ -51,6 +63,7 @@ export struct GifItem {
     title: string,
     preview: image,
     has_preview: bool,
+    locked: bool,
 }
 
 export struct GifRow {
@@ -687,6 +700,18 @@ export component AppWindow inherits Window {
     in-out property <[GifRow]> sticker_rows: [];
     in-out property <bool> sticker_empty: false;
     callback open_stickers();
+    in-out property <[PickerRail]> emoji_rail: [];
+    in-out property <[PickerRail]> sticker_rail: [];
+    in-out property <string> sticker_source: "";
+    in-out property <string> emoji_preview_name: "";
+    in-out property <image> emoji_preview_img;
+    in-out property <string> sticker_preview_name: "";
+    in-out property <image> sticker_preview_img;
+    callback emoji_search(string);
+    callback load_picker_emoji(string);
+    callback pick_sticker_source(string);
+    callback sticker_search(string);
+    callback refresh_frequent();
     callback send_sticker(string);
     callback open_expression(string);
     open_expression(tab) => {
@@ -707,6 +732,8 @@ export component AppWindow inherits Window {
     callback stream_row_hovered(string);
     in-out property <string> profile_user_id;
     in-out property <string> profile_mutual;
+    in-out property <image> profile_banner;
+    in-out property <bool> profile_has_banner: false;
     callback profile_send_dm(string);
     // The call's chat, docked beside the stage while the call stays on screen.
     in-out property <bool> call_chat_docked: false;
@@ -3959,6 +3986,8 @@ export component AppWindow inherits Window {
         accent: root.profile_accent;
         roles: root.profile_roles;
         mutual: root.profile_mutual;
+        banner: root.profile_banner;
+        has_banner: root.profile_has_banner;
         send_dm(text) => { root.profile_send_dm(text); }
         close => { root.show_profile = false; }
     }
@@ -4066,95 +4095,179 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Discord-style Emoji Picker Box
+                    // Emoji tab
                     if root.show_emoji_picker : Rectangle {
                         x: root.width - self.width - root.member_panel_width - 16px;
                         y: root.height - self.height - 76px;
-                        width: 480px;
-                        height: 440px;
+                        width: 500px;
+                        height: 540px;
                         background: AppTheme.surface-elevated;
                         border-radius: 8px;
                         border-width: 1px;
                         border-color: AppTheme.border-subtle;
                         drop-shadow-blur: 10px;
                         drop-shadow-color: AppTheme.surface-scrim;
-
-                        // Clicks on the popup stay on the popup.
                         TouchArea {}
 
                         VerticalLayout {
                             padding: 10px;
                             spacing: 8px;
 
-                            HorizontalLayout {
-                                spacing: 8px;
-                                alignment: space-between;
+                            ExpressionTabs {
+                                active: "emoji";
+                                select(tab) => { root.open_expression(tab); }
+                            }
 
-                                ExpressionTabs {
-                                    active: "emoji";
-                                    select(tab) => { root.open_expression(tab); }
+                            LineEdit {
+                                placeholder-text: "Find the perfect emoji";
+                                edited(query) => { root.emoji_search(query); }
+                            }
+
+                            HorizontalLayout {
+                                vertical-stretch: 1;
+                                spacing: 6px;
+                                ListView {
+                                    width: 52px;
+                                    for item in root.emoji_rail: Rectangle {
+                                        height: 46px;
+                                        Rectangle {
+                                            x: 4px;
+                                            y: 3px;
+                                            width: 40px;
+                                            height: 40px;
+                                            border-radius: 12px;
+                                            background: emoji_rail_ta.has-hover || false ? AppTheme.interactive-selected : AppTheme.surface-input;
+                                            animate background { duration: 100ms; easing: ease-out; }
+                                            clip: true;
+                                            if item.is_recent: Image {
+                                                x: 9px;
+                                                y: 9px;
+                                                width: 22px;
+                                                height: 22px;
+                                                source: @image-url("../assets/clock.svg");
+                                                colorize: AppTheme.text-secondary;
+                                            }
+                                            if !item.is_recent && item.has_icon: Image {
+                                                width: 100%;
+                                                height: 100%;
+                                                source: item.icon;
+                                                image-fit: cover;
+                                            }
+                                            if !item.is_recent && !item.has_icon: Text {
+                                                text: item.initial;
+                                                color: AppTheme.text-strong;
+                                                font-size: TypeScale.body;
+                                                font-weight: 700;
+                                            }
+                                            emoji_rail_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { emoji_list.viewport-y = -item.row * 42px; }
+                                            }
+                                        }
+                                    }
                                 }
 
-                                Rectangle {
-                                    width: 22px;
-                                    height: 22px;
-                                    border-radius: 11px;
-                                    background: close_emojis_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                emoji_list := ListView {
+                                    horizontal-stretch: 1;
+                                    for row in root.emoji_rows: Rectangle {
+                                        height: 42px;
 
-                                    Image {
-                                        source: @image-url("../assets/x.svg");
-                                        width: 10px;
-                                        height: 10px;
-                                        colorize: AppTheme.text-muted;
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                    }
+                                        if row.header != "": Text {
+                                            x: 4px;
+                                            width: parent.width - 8px;
+                                            height: parent.height;
+                                            text: row.header;
+                                            color: AppTheme.text-secondary;
+                                            font-size: TypeScale.small;
+                                            font-weight: 600;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
 
-                                    close_emojis_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.show_emoji_picker = false; }
+                                        if row.header == "": HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 2px;
+                                            for e in row.emojis: Rectangle {
+                                                width: 42px;
+                                                height: 40px;
+                                                border-radius: 6px;
+                                                background: emoji_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                                animate background { duration: 90ms; easing: ease-out; }
+                                                init => {
+                                                    if (e.img.width == 0 && e.emoji_id != "") { root.load_picker_emoji(e.emoji_id); }
+                                                }
+
+                                                if e.img.width == 0 && !e.is_custom: Text {
+                                                    text: e.code;
+                                                    font-size: 20px;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+
+                                                if e.img.width > 0: Image {
+                                                    x: 6px;
+                                                    y: 5px;
+                                                    width: 30px;
+                                                    height: 30px;
+                                                    source: e.img;
+                                                    image-fit: contain;
+                                                    opacity: e.locked ? 0.35 : 1;
+                                                }
+
+                                                if e.locked: Rectangle {
+                                                    x: 24px;
+                                                    y: 22px;
+                                                    width: 16px;
+                                                    height: 16px;
+                                                    border-radius: 8px;
+                                                    background: AppTheme.backdrop-max;
+                                                    Image {
+                                                        width: 10px;
+                                                        height: 10px;
+                                                        source: @image-url("../assets/lock.svg");
+                                                        colorize: AppTheme.solid-white;
+                                                    }
+                                                }
+
+                                                emoji_cell_ta := TouchArea {
+                                                    mouse-cursor: e.locked ? default : pointer;
+                                                    changed has-hover => {
+                                                        if (self.has-hover) {
+                                                            root.emoji_preview_name = ":" + e.name + ":";
+                                                            root.emoji_preview_img = e.img;
+                                                        }
+                                                    }
+                                                    clicked => {
+                                                        if (!e.locked) { root.select_emoji(e.code); }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            // Emoji Grid Container
-                            ScrollView {
-                                vertical-stretch: 1;
-
-                                VerticalLayout {
-                                    spacing: 4px;
-
-                                    for row in root.emoji_rows: HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: start;
-                                        for e in row.emojis: Rectangle {
-                                            width: 34px;
-                                            height: 34px;
-                                            border-radius: 6px;
-                                            background: emoji_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
-                                            animate background { duration: 100ms; }
-
-                                            if e.img.width == 0 && !e.is_custom: Text {
-                                                text: e.code;
-                                                font-size: 20px;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
-
-                                            if e.img.width > 0: Image {
-                                                x: 5px;
-                                                y: 5px;
-                                                width: 24px;
-                                                height: 24px;
-                                                source: e.img;
-                                                image-fit: contain;
-                                            }
-
-                                            emoji_cell_ta := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => { root.select_emoji(e.code); }
-                                            }
+                            Rectangle {
+                                height: 40px;
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Image {
+                                            width: 28px;
+                                            height: 28px;
+                                            source: root.emoji_preview_img;
+                                            image-fit: contain;
                                         }
+                                    }
+                                    Text {
+                                        horizontal-stretch: 1;
+                                        text: root.emoji_preview_name;
+                                        color: AppTheme.text-strong;
+                                        font-size: TypeScale.body;
+                                        font-weight: 600;
+                                        vertical-alignment: center;
+                                        overflow: elide;
                                     }
                                 }
                             }
@@ -4335,8 +4448,8 @@ export component AppWindow inherits Window {
     if root.show_sticker_picker: Rectangle {
         x: root.width - self.width - root.member_panel_width - 16px;
         y: root.height - self.height - 76px;
-        width: 480px;
-        height: 520px;
+        width: 500px;
+        height: 540px;
         background: AppTheme.surface-elevated;
         border-radius: 8px;
         border-width: 1px;
@@ -4351,42 +4464,138 @@ export component AppWindow inherits Window {
                 active: "sticker";
                 select(tab) => { root.open_expression(tab); }
             }
-            if root.sticker_empty: Text {
-                text: "This server has no stickers you can send.";
-                color: AppTheme.text-muted;
-                font-size: TypeScale.small;
-                horizontal-alignment: center;
+            LineEdit {
+                placeholder-text: "Search stickers";
+                edited(query) => { root.sticker_search(query); }
             }
-            ScrollView {
+            HorizontalLayout {
                 vertical-stretch: 1;
-                viewport-width: self.visible-width;
+                spacing: 6px;
+                                ListView {
+                                    width: 52px;
+                                    for item in root.sticker_rail: Rectangle {
+                                        height: 46px;
+                                        Rectangle {
+                                            x: 4px;
+                                            y: 3px;
+                                            width: 40px;
+                                            height: 40px;
+                                            border-radius: 12px;
+                                            background: sticker_rail_ta.has-hover || root.sticker_source == item.id ? AppTheme.interactive-selected : AppTheme.surface-input;
+                                            animate background { duration: 100ms; easing: ease-out; }
+                                            clip: true;
+                                            if item.is_recent: Image {
+                                                x: 9px;
+                                                y: 9px;
+                                                width: 22px;
+                                                height: 22px;
+                                                source: @image-url("../assets/clock.svg");
+                                                colorize: AppTheme.text-secondary;
+                                            }
+                                            if !item.is_recent && item.has_icon: Image {
+                                                width: 100%;
+                                                height: 100%;
+                                                source: item.icon;
+                                                image-fit: cover;
+                                            }
+                                            if !item.is_recent && !item.has_icon: Text {
+                                                text: item.initial;
+                                                color: AppTheme.text-strong;
+                                                font-size: TypeScale.body;
+                                                font-weight: 700;
+                                            }
+                                            sticker_rail_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { root.pick_sticker_source(item.id); }
+                                            }
+                                        }
+                                    }
+                                }
+
                 VerticalLayout {
-                    spacing: 6px;
-                    alignment: start;
-                    for row in root.sticker_rows: HorizontalLayout {
-                        spacing: 6px;
-                        alignment: start;
-                        for sticker in row.items: Rectangle {
-                            width: 108px;
-                            height: 108px;
-                            border-radius: 6px;
-                            background: sticker_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
-                            if sticker.has_preview: Image {
-                                x: 6px;
-                                y: 6px;
-                                width: 96px;
-                                height: 96px;
-                                source: sticker.preview;
-                                image-fit: contain;
-                            }
-                            sticker_cell_ta := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.send_sticker(sticker.url);
-                                    root.show_sticker_picker = false;
+                    horizontal-stretch: 1;
+                    if root.sticker_empty: Text {
+                        text: "No stickers here.";
+                        color: AppTheme.text-muted;
+                        font-size: TypeScale.small;
+                        horizontal-alignment: center;
+                    }
+                    ListView {
+                        vertical-stretch: 1;
+                        for row in root.sticker_rows: HorizontalLayout {
+                            height: 134px;
+                            spacing: 6px;
+                            alignment: start;
+                            for sticker in row.items: Rectangle {
+                                width: 128px;
+                                height: 128px;
+                                border-radius: 6px;
+                                background: sticker_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                animate background { duration: 90ms; easing: ease-out; }
+                                if sticker.has_preview: Image {
+                                    x: 6px;
+                                    y: 6px;
+                                    width: 116px;
+                                    height: 116px;
+                                    source: sticker.preview;
+                                    image-fit: contain;
+                                    opacity: sticker.locked ? 0.35 : 1;
+                                }
+                                if sticker.locked: Rectangle {
+                                    x: 52px;
+                                    y: 52px;
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 12px;
+                                    background: AppTheme.backdrop-max;
+                                    Image {
+                                        width: 14px;
+                                        height: 14px;
+                                        source: @image-url("../assets/lock.svg");
+                                        colorize: AppTheme.solid-white;
+                                    }
+                                }
+                                sticker_cell_ta := TouchArea {
+                                    mouse-cursor: sticker.locked ? default : pointer;
+                                    changed has-hover => {
+                                        if (self.has-hover) {
+                                            root.sticker_preview_name = sticker.title;
+                                            root.sticker_preview_img = sticker.preview;
+                                        }
+                                    }
+                                    clicked => {
+                                        if (!sticker.locked) {
+                                            root.send_sticker(sticker.url);
+                                            root.show_sticker_picker = false;
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                }
+            }
+            Rectangle {
+                height: 40px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 32px;
+                            height: 32px;
+                            source: root.sticker_preview_img;
+                            image-fit: contain;
+                        }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.sticker_preview_name;
+                        color: AppTheme.text-strong;
+                        font-size: TypeScale.body;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        overflow: elide;
                     }
                 }
             }
