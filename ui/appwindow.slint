@@ -6,7 +6,7 @@ import "../assets/fonts/Inter-Variable.ttf";
 
 import { IconButton } from "components/icon_button.slint";
 import { ChannelSidebar, ChannelItem } from "components/channel_sidebar.slint";
-import { MemberListPanel, MemberRow, ProfileCard, ProfileRole, UserContextMenu } from "components/member_list.slint";
+import { MemberListPanel, MemberRow, ProfileBadge, ProfileCard, ProfileRole, UserContextMenu, UserMenuItem } from "components/member_list.slint";
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
@@ -257,6 +257,11 @@ export component AppWindow inherits Window {
     in-out property <bool> user_menu_can_move;
     in-out property <bool> user_menu_can_kick;
     in-out property <bool> user_menu_can_ban;
+    in-out property <bool> user_menu_can_roles;
+    in-out property <bool> user_menu_blocked;
+    in-out property <string> user_menu_sub: "";
+    in-out property <[UserMenuItem]> user_menu_items: [];
+    in-out property <string> user_menu_note: "";
     in-out property <string> user_menu_confirm;
     in-out property <string> user_menu_error;
     in-out property <length> user_menu_x;
@@ -813,6 +818,8 @@ export component AppWindow inherits Window {
     in-out property <string> profile_user_id;
     in-out property <string> profile_mutual;
     in-out property <bool> profile_has_status: false;
+    in-out property <[ProfileBadge]> profile_badges: [];
+    in-out property <string> profile_tag: "";
     in-out property <color> profile_status_color;
     in-out property <string> profile_status: "";
     in-out property <string> profile_activity: "";
@@ -4126,6 +4133,8 @@ export component AppWindow inherits Window {
         roles: root.profile_roles;
         mutual: root.profile_mutual;
         has_status: root.profile_has_status;
+        badges: root.profile_badges;
+        tag: root.profile_tag;
         status_color: root.profile_status_color;
         status: root.profile_status;
         activity: root.profile_activity;
@@ -4962,6 +4971,11 @@ export component AppWindow inherits Window {
         can_move: root.user_menu_can_move;
         can_kick: root.user_menu_can_kick;
         can_ban: root.user_menu_can_ban;
+        can_roles: root.user_menu_can_roles;
+        blocked: root.user_menu_blocked;
+        sub: root.user_menu_sub;
+        sub_items: root.user_menu_items;
+        note <=> root.user_menu_note;
         confirm <=> root.user_menu_confirm;
         error: root.user_menu_error;
         close => { root.show_user_menu_popup = false; }

@@ -15,6 +15,7 @@ const BAN_MEMBERS: u64 = 1 << 2;
 const MUTE_MEMBERS: u64 = 1 << 22;
 const DEAFEN_MEMBERS: u64 = 1 << 23;
 const MOVE_MEMBERS: u64 = 1 << 24;
+const MANAGE_ROLES: u64 = 1 << 28;
 
 static REQUEST: AtomicU64 = AtomicU64::new(0);
 
@@ -53,6 +54,8 @@ pub fn open(ui: &AppWindow, http: Option<DiscordHttpClient>, row_id: &str, x: f3
     ui.set_user_menu_can_move(false);
     ui.set_user_menu_can_kick(false);
     ui.set_user_menu_can_ban(false);
+    ui.set_user_menu_can_roles(false);
+    crate::ui::user_menu_tools::prepare(ui, http.clone(), &user_id);
     ui.set_user_menu_confirm("".into());
     ui.set_user_menu_error("".into());
     ui.set_user_menu_x(x);
@@ -83,6 +86,7 @@ pub fn open(ui: &AppWindow, http: Option<DiscordHttpClient>, row_id: &str, x: f3
                 ui.set_user_menu_can_move(p.has_permission(MOVE_MEMBERS));
                 ui.set_user_menu_can_kick(p.has_permission(KICK_MEMBERS));
                 ui.set_user_menu_can_ban(p.has_permission(BAN_MEMBERS));
+                ui.set_user_menu_can_roles(p.has_permission(MANAGE_ROLES));
             }
         });
     });
@@ -105,6 +109,9 @@ fn finish(app: slint::Weak<AppWindow>, result: Result<(), String>, close: bool) 
 
 pub fn action(ui: &AppWindow, http: Option<DiscordHttpClient>, active_channel: Arc<Mutex<String>>, name: &str) {
     let user_id = ui.get_user_menu_user_id().to_string();
+    if crate::ui::user_menu_tools::handle(ui, http.clone(), current_guild(ui), name) {
+        return;
+    }
     match name {
         "profile" => {
             ui.set_show_user_menu_popup(false);

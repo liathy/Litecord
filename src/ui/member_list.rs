@@ -16,11 +16,12 @@ use tokio::sync::mpsc;
 use crate::gateway::GatewayCommand;
 use crate::http::DiscordHttpClient;
 use crate::utils::avatar_cache;
-use crate::{AppWindow, MemberRow, ProfileRole};
+use crate::{AppWindow, MemberRow, ProfileBadge, ProfileRole};
 
 const RANGE_SIZE: usize = 100;
 const MAX_ROWS: usize = 2000;
 const MAX_PROFILE_ROLES: usize = 12;
+const MAX_PROFILE_BADGES: usize = 12;
 const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
 const DEFAULT_ACCENT: u32 = 0x5865F2;
 
@@ -266,6 +267,8 @@ pub struct Profile {
     pub role_ids: Vec<String>,
     pub mutual: String,
     pub banner_url: String,
+    pub badges: Vec<(String, String)>,
+    pub tag: String,
 }
 
 /// Reads `/users/{id}/profile`, or a plain user object. The server's profile wins.
@@ -301,8 +304,24 @@ pub fn parse_profile(body: &Value) -> Option<Profile> {
             .unwrap_or_default(),
         mutual: mutual_text(body),
         banner_url: banner_url(&id, body, user),
+        badges: badge_list(body),
+        tag: server_tag(user),
         id,
     })
+}
+
+/// Name and icon link of each profile badge, in Discord's order.
+fn badge_list(body: &Value) -> Vec<(String, String)> {
+    body["badges"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|badge| {
+            let icon = badge["icon"].as_str().filter(|icon| !icon.is_empty() && icon.bytes().all(|b| b.is_ascii_alphanumeric()))?;
+            Some((badge["description"].as_str().unwrap_or("Badge").to_owned(), format!("https://cdn.discordapp.com/badge-icons/{icon}.png")))
+        })
+        .take(MAX_PROFILE_BADGES)
+        .collect()
 }
 
 fn banner_url(id: &str, body: &Value, user: &Value) -> String {
@@ -608,6 +627,13 @@ fn show_profile(ui: &AppWindow, profile: &Profile, roles: &HashMap<String, Role>
     ui.set_profile_avatar(image);
     ui.set_profile_accent(rgb(profile.accent.filter(|c| *c != 0).unwrap_or(DEFAULT_ACCENT)));
     ui.set_profile_mutual(profile.mutual.as_str().into());
+    ui.set_profile_tag(profile.tag.as_str().into());
+    let badges: Vec<ProfileBadge> = profile
+        .badges
+        .iter()
+        .map(|(name, _)| ProfileBadge { name: name.as_str().into(), ..Default::default() })
+        .collect();
+    ui.set_profile_badges(ModelRc::new(VecModel::from(badges)));
 
     let mut held: Vec<&Role> = profile.role_ids.iter().filter_map(|id| roles.get(id)).collect();
     held.sort_by_key(|role| std::cmp::Reverse(role.position));
@@ -648,6 +674,24 @@ pub fn open_profile(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: St
                 ui.set_profile_loading(false);
                 if let Some(profile) = profile {
                     show_profile(&ui, &profile, &roles);
+                    for (index, (_, url)) in profile.badges.iter().cloned().enumerate() {
+                        let app = ui.as_weak();
+                        tokio::spawn(async move {
+                            let Some(buffer) = crate::ui::gif_picker::fetch_image(&url, 40, 40).await else { return };
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if PROFILE_REQUEST.load(Ordering::SeqCst) != request {
+                                    return;
+                                }
+                                let Some(ui) = app.upgrade() else { return };
+                                let badges = ui.get_profile_badges();
+                                if let Some(mut badge) = badges.row_data(index) {
+                                    badge.img = slint::Image::from_rgba8(buffer);
+                                    badge.loaded = true;
+                                    badges.set_row_data(index, badge);
+                                }
+                            });
+                        });
+                    }
                     if !profile.banner_url.is_empty() {
                         let (app, url) = (ui.as_weak(), profile.banner_url.clone());
                         tokio::spawn(async move {
@@ -729,6 +773,17 @@ mod tests {
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("a")] }] }));
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "UPDATE", "index": 0, "item": member("z") }] }));
         assert_eq!(ids(&rows), ["z"]);
+    }
+
+    #[test]
+    fn reads_profile_badges_and_rejects_bad_icons() {
+        let body = json!({ "badges": [
+            { "description": "Active Developer", "icon": "6bdc42827a38498929a4920da12695d9" },
+            { "description": "bad", "icon": "../x" },
+        ] });
+        let badges = badge_list(&body);
+        assert_eq!(badges.len(), 1);
+        assert_eq!(badges[0].1, "https://cdn.discordapp.com/badge-icons/6bdc42827a38498929a4920da12695d9.png");
     }
 
     #[test]

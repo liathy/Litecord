@@ -1,4 +1,4 @@
-import { ListView, ScrollView, Slider } from "std-widgets.slint";
+import { LineEdit, ListView, ScrollView, Slider } from "std-widgets.slint";
 import { AppTheme, TypeScale } from "../theme.slint";
 import { Tr } from "tr.slint";
 
@@ -16,6 +16,21 @@ export struct MemberRow {
     is_bot: bool,
     activity: string,
     tag: string,
+}
+
+export struct ProfileBadge {
+    name: string,
+    img: image,
+    loaded: bool,
+}
+
+export struct UserMenuItem {
+    id: string,
+    title: string,
+    has_check: bool,
+    checked: bool,
+    has_color: bool,
+    color: color,
 }
 
 export struct ProfileRole {
@@ -194,6 +209,8 @@ export component ProfileCard inherits Rectangle {
     in property <color> accent;
     in property <[ProfileRole]> roles;
     in property <string> mutual;
+    in property <[ProfileBadge]> badges;
+    in property <string> tag;
     in property <bool> has_status;
     in property <color> status_color;
     in property <string> status;
@@ -288,6 +305,38 @@ export component ProfileCard inherits Rectangle {
                         color: AppTheme.text-secondary;
                         font-size: TypeScale.small;
                         overflow: elide;
+                    }
+                }
+
+                if root.badges.length > 0 || root.tag != "": HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    if root.tag != "": VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: profile_tag.preferred-width + 10px;
+                            height: 20px;
+                            border-radius: 4px;
+                            background: AppTheme.interactive-muted;
+                            profile_tag := Text {
+                                text: root.tag;
+                                color: AppTheme.text-primary;
+                                font-size: TypeScale.caption;
+                                font-weight: 700;
+                            }
+                        }
+                    }
+                    for badge in root.badges: Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        accessible-role: image;
+                        accessible-label: badge.name;
+                        if badge.loaded: Image {
+                            width: 20px;
+                            height: 20px;
+                            source: badge.img;
+                            image-fit: contain;
+                        }
                     }
                 }
 
@@ -501,6 +550,11 @@ export component UserContextMenu inherits Rectangle {
     in property <bool> can_move;
     in property <bool> can_kick;
     in property <bool> can_ban;
+    in property <bool> can_roles;
+    in property <bool> blocked;
+    in property <string> sub;
+    in property <[UserMenuItem]> sub_items;
+    in-out property <string> note;
     in-out property <string> confirm;
     in property <string> error;
     callback close();
@@ -512,7 +566,7 @@ export component UserContextMenu inherits Rectangle {
     callback stream_volume_changed(float);
     callback toggle_mute();
 
-    property <bool> has_moderation: (root.in_voice && (root.can_mute || root.can_deafen || root.can_move)) || root.can_kick || root.can_ban;
+    property <bool> has_moderation: (root.in_voice && (root.can_mute || root.can_deafen || root.can_move)) || root.can_kick || root.can_ban || root.can_roles;
 
     TouchArea {
         clicked => { root.close(); }
@@ -547,14 +601,14 @@ export component UserContextMenu inherits Rectangle {
                 spacing: 8px;
                 padding: 6px;
                 Text {
-                    text: (root.confirm == "kick" ? "Kick " : (root.confirm == "ban" ? "Ban " : "Disconnect ")) + root.name + "?";
+                    text: (root.confirm == "kick" ? "Kick " : (root.confirm == "ban" ? "Ban " : (root.confirm == "block" ? "Block " : "Disconnect "))) + root.name + "?";
                     color: AppTheme.text-strong;
                     font-size: TypeScale.body;
                     font-weight: 700;
                     wrap: word-wrap;
                 }
                 MenuRow {
-                    text: root.confirm == "kick" ? "Yes, kick" : (root.confirm == "ban" ? "Yes, ban" : "Yes, disconnect");
+                    text: root.confirm == "kick" ? "Yes, kick" : (root.confirm == "ban" ? "Yes, ban" : (root.confirm == "block" ? "Yes, block" : "Yes, disconnect"));
                     danger: true;
                     clicked => { root.action(root.confirm); }
                 }
@@ -564,12 +618,62 @@ export component UserContextMenu inherits Rectangle {
                 }
             }
 
-            if root.confirm == "": VerticalLayout {
+            if root.confirm == "" && root.sub != "": VerticalLayout {
+                spacing: 4px;
+                MenuRow { text: "‹ Back"; clicked => { root.action("back"); } }
+                MenuLine { }
+                if root.sub == "note": VerticalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 6px;
+                    LineEdit {
+                        text <=> root.note;
+                        placeholder-text: "Click to add a note";
+                    }
+                    MenuRow { text: "Save Note"; clicked => { root.action("save_note"); } }
+                }
+                if root.sub != "note": ScrollView {
+                    height: Math.min(sub_rows.preferred-height, 300px);
+                    viewport-width: self.visible-width;
+                    sub_rows := VerticalLayout {
+                        alignment: start;
+                        spacing: 1px;
+                        for entry in root.sub_items: Rectangle {
+                            height: 32px;
+                            if entry.has_color: Rectangle {
+                                x: 2px;
+                                y: 11px;
+                                width: 10px;
+                                height: 10px;
+                                border-radius: 5px;
+                                background: entry.color;
+                            }
+                            MenuRow {
+                                x: entry.has_color ? 12px : 0px;
+                                width: parent.width - (entry.has_color ? 12px : 0px);
+                                text: entry.title;
+                                has-check: entry.has_check;
+                                checked: entry.checked;
+                                clicked => { root.action("pick:" + entry.id); }
+                            }
+                        }
+                    }
+                }
+                if root.error != "": Text {
+                    text: root.error;
+                    color: AppTheme.danger;
+                    font-size: TypeScale.caption;
+                    wrap: word-wrap;
+                }
+            }
+
+            if root.confirm == "" && root.sub == "": VerticalLayout {
                 spacing: 1px;
 
                 MenuRow { text: "Profile"; clicked => { root.action("profile"); } }
                 MenuRow { text: "Mention"; clicked => { root.action("mention"); } }
                 if !root.is_self: MenuRow { text: "Message"; clicked => { root.action("message"); } }
+                if !root.is_self: MenuRow { text: "Add Note"; clicked => { root.action("open_note"); } }
 
                 if !root.is_self: MenuLine { }
                 if !root.is_self: VerticalLayout {
@@ -653,6 +757,8 @@ export component UserContextMenu inherits Rectangle {
                     checked: root.server_deafened;
                     clicked => { root.action("server_deafen"); }
                 }
+                if root.can_roles: MenuRow { text: "Roles  ›"; clicked => { root.action("open_roles"); } }
+                if root.in_voice && root.can_move: MenuRow { text: "Move To  ›"; clicked => { root.action("open_move"); } }
                 if root.in_voice && root.can_move: MenuRow {
                     text: "Disconnect";
                     danger: true;
@@ -670,6 +776,8 @@ export component UserContextMenu inherits Rectangle {
                 }
 
                 MenuLine { }
+                if !root.is_self && !root.blocked: MenuRow { text: "Block"; danger: true; clicked => { root.confirm = "block"; } }
+                if !root.is_self && root.blocked: MenuRow { text: "Unblock"; clicked => { root.action("unblock"); } }
                 MenuRow { text: "Copy User ID"; clicked => { root.action("copy_id"); } }
 
                 if root.error != "": Text {
