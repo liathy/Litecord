@@ -324,29 +324,33 @@ pub fn start(req: Request) -> bool {
             }
             raise_gpu_priority(&device, &gpu.name);
             if worker_cancelled.load(Ordering::Acquire) || !req.is_running.load(Ordering::Relaxed) { return; }
+            // WGC draws the mouse pointer into the picture; DXGI duplication leaves it out,
+            // so it is only the fallback for a screen WGC cannot capture.
+            let wgc_sink = Sink::new(&req, &device, Arc::clone(&worker_cancelled));
+            let wgc_error = match run_wgc(&device, req.hwnd, monitor, wgc_sink, &req, &gpu, &ready_tx) {
+                Ok(()) => return,
+                Err(e) => e,
+            };
+            warn!("⚠️ [CAPTURA GPU] WGC indisponível na {}: {}", gpu.name, wgc_error);
+            if req.hwnd != 0 || !drives_monitor || worker_cancelled.load(Ordering::Acquire) {
+                let _ = ready_tx.send(false);
+                return;
+            }
             let mut sink = Sink::new(&req, &device, worker_cancelled);
-            if req.hwnd == 0 && drives_monitor {
-                match display_of(HMONITOR(monitor as _)).map(|(_, _, o)| o) {
-                    Some(output) => match duplicate(&device, &output) {
-                        Ok(dup) => {
-                            info!("🖥️ [CAPTURA GPU] Tela capturada por DXGI na {} (placa ligada ao monitor)", gpu.name);
-                            if ready_tx.send(true).is_err() { return; }
-                            report(&gpu, "DXGI", &sink.cancelled);
-                            run_duplication(dup, &device, &output, &mut sink, &req);
-                            return;
-                        }
-                        Err(e) => warn!("⚠️ [CAPTURA GPU] DXGI indisponível na {} ({}); usando WGC", gpu.name, e),
-                    },
-                    None => warn!("⚠️ [CAPTURA GPU] Monitor não encontrado entre as saídas da {}; usando WGC", gpu.name),
-                }
+            match display_of(HMONITOR(monitor as _)).map(|(_, _, o)| o) {
+                Some(output) => match duplicate(&device, &output) {
+                    Ok(dup) => {
+                        info!("🖥️ [CAPTURA GPU] Tela capturada por DXGI na {} (sem o ponteiro do mouse)", gpu.name);
+                        if ready_tx.send(true).is_err() { return; }
+                        report(&gpu, "DXGI", &sink.cancelled);
+                        run_duplication(dup, &device, &output, &mut sink, &req);
+                        return;
+                    }
+                    Err(e) => warn!("⚠️ [CAPTURA GPU] DXGI indisponível na {}: {}", gpu.name, e),
+                },
+                None => warn!("⚠️ [CAPTURA GPU] Monitor não encontrado entre as saídas da {}", gpu.name),
             }
-            match run_wgc(&device, req.hwnd, monitor, sink, &req, &gpu, &ready_tx) {
-                Ok(()) => {}
-                Err(e) => {
-                    warn!("⚠️ [CAPTURA GPU] WGC indisponível na {}: {}", gpu.name, e);
-                    let _ = ready_tx.send(false);
-                }
-            }
+            let _ = ready_tx.send(false);
         })
         .is_ok();
     let ready = spawned
