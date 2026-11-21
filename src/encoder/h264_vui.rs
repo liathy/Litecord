@@ -135,6 +135,186 @@ fn rewrite_sps(nal: &[u8], primaries: u8, transfer: u8, matrix: u8) -> Option<Ve
     Some(out)
 }
 
+/// Annex B `stream` with every SPS telling decoders that frames are never reordered, so
+/// they show each picture at once instead of holding some back. `None` when nothing changes.
+pub fn without_reordering(stream: &[u8]) -> Option<Vec<u8>> {
+    let mut out: Option<Vec<u8>> = None;
+    let mut last = 0;
+    for range in crate::screen_capture::hw_decode::h264_state::nal_ranges(stream) {
+        if stream[range.start] & 0x1f != 7 {
+            continue;
+        }
+        let Some(rewritten) = restrict_reordering(&stream[range.clone()]) else { continue };
+        let target = out.get_or_insert_with(|| Vec::with_capacity(stream.len() + 8));
+        target.extend_from_slice(&stream[last..range.start]);
+        target.extend_from_slice(&rewritten);
+        last = range.end;
+    }
+    let mut out = out?;
+    out.extend_from_slice(&stream[last..]);
+    Some(out)
+}
+
+fn skip_hrd(r: &mut BitReader) -> Option<()> {
+    let count = r.ue()?;
+    r.bits(8)?;
+    for _ in 0..=count {
+        r.ue()?;
+        r.ue()?;
+        r.bits(1)?;
+    }
+    r.bits(20)?;
+    Some(())
+}
+
+fn write_ue(w: &mut BitWriter, value: u32) {
+    let code = value + 1;
+    let length = 32 - code.leading_zeros();
+    for _ in 1..length {
+        w.bit(0);
+    }
+    for i in (0..length).rev() {
+        w.bit(((code >> i) & 1) as u8);
+    }
+}
+
+/// One SPS with bitstream restrictions saying no reordering; `None` when it already says
+/// so, has no VUI, or cannot be read.
+fn restrict_reordering(nal: &[u8]) -> Option<Vec<u8>> {
+    let rbsp = unescape(&nal[1..]);
+    let mut r = BitReader::new(&rbsp);
+    let profile = r.bits(8)?;
+    r.bits(16)?;
+    r.ue()?;
+    if matches!(profile, 100 | 110 | 122 | 244 | 44 | 83 | 86 | 118 | 128 | 138 | 139 | 134 | 135) {
+        let chroma = r.ue()?;
+        if chroma == 3 {
+            r.bits(1)?;
+        }
+        r.ue()?;
+        r.ue()?;
+        r.bits(1)?;
+        if r.bits(1)? == 1 {
+            for i in 0..if chroma == 3 { 12 } else { 8 } {
+                if r.bits(1)? == 1 {
+                    skip_scaling_list(&mut r, if i < 6 { 16 } else { 64 })?;
+                }
+            }
+        }
+    }
+    r.ue()?;
+    match r.ue()? {
+        0 => {
+            r.ue()?;
+        }
+        1 => {
+            r.bits(1)?;
+            r.se()?;
+            r.se()?;
+            for _ in 0..r.ue()? {
+                r.se()?;
+            }
+        }
+        _ => {}
+    }
+    let max_refs = r.ue()?;
+    r.bits(1)?;
+    r.ue()?;
+    r.ue()?;
+    if r.bits(1)? == 0 {
+        r.bits(1)?;
+    }
+    r.bits(1)?;
+    if r.bits(1)? == 1 {
+        for _ in 0..4 {
+            r.ue()?;
+        }
+    }
+    if r.bits(1)? == 0 {
+        return None;
+    }
+    if r.bits(1)? == 1 && r.bits(8)? == 255 {
+        r.bits(32)?;
+    }
+    if r.bits(1)? == 1 {
+        r.bits(1)?;
+    }
+    if r.bits(1)? == 1 {
+        r.bits(4)?;
+        if r.bits(1)? == 1 {
+            r.bits(24)?;
+        }
+    }
+    if r.bits(1)? == 1 {
+        r.ue()?;
+        r.ue()?;
+    }
+    if r.bits(1)? == 1 {
+        r.bits(32)?;
+        r.bits(32)?;
+        r.bits(1)?;
+    }
+    let nal_hrd = r.bits(1)? == 1;
+    if nal_hrd {
+        skip_hrd(&mut r)?;
+    }
+    let vcl_hrd = r.bits(1)? == 1;
+    if vcl_hrd {
+        skip_hrd(&mut r)?;
+    }
+    if nal_hrd || vcl_hrd {
+        r.bits(1)?;
+    }
+    r.bits(1)?;
+
+    let flag_at = r.pos;
+    let kept_fields = if r.bits(1)? == 1 {
+        let start = r.pos;
+        r.bits(1)?;
+        for _ in 0..4 {
+            r.ue()?;
+        }
+        let end = r.pos;
+        if r.ue()? == 0 && r.ue()? == max_refs {
+            return None;
+        }
+        Some((start, end))
+    } else {
+        None
+    };
+
+    let mut w = BitWriter::default();
+    let mut src = BitReader::new(&rbsp);
+    for _ in 0..flag_at {
+        w.bit(src.bits(1)? as u8);
+    }
+    w.bit(1);
+    match kept_fields {
+        Some((start, end)) => {
+            src.pos = start;
+            while src.pos < end {
+                w.bit(src.bits(1)? as u8);
+            }
+        }
+        None => {
+            w.bit(1); // motion_vectors_over_pic_boundaries_flag
+            write_ue(&mut w, 2);
+            write_ue(&mut w, 1);
+            write_ue(&mut w, 16);
+            write_ue(&mut w, 16);
+        }
+    }
+    write_ue(&mut w, 0);
+    write_ue(&mut w, max_refs);
+    w.bit(1);
+    while w.n % 8 != 0 {
+        w.bit(0);
+    }
+    let mut out = vec![nal[0]];
+    out.extend_from_slice(&escape(&w.bytes));
+    Some(out)
+}
+
 fn byte_bits(values: &[u8]) -> impl Iterator<Item = u8> + '_ {
     values.iter().flat_map(|v| (0..8).rev().map(move |i| (v >> i) & 1))
 }
@@ -244,6 +424,51 @@ mod tests {
         let r = crate::screen_capture::hw_decode::h264_state::nal_ranges(stream).into_iter().find(|r| stream[r.start] & 0x1f == 7).unwrap();
         let nal = RefNal::new(&stream[r], &[], true);
         SeqParameterSet::from_bits(nal.rbsp_bits()).unwrap()
+    }
+
+    fn sps_without_restrictions() -> Vec<u8> {
+        let mut w = BitWriter::default();
+        for byte in [77u8, 0, 31] {
+            for i in (0..8).rev() {
+                w.bit((byte >> i) & 1);
+            }
+        }
+        write_ue(&mut w, 0); // id
+        write_ue(&mut w, 0); // log2_max_frame_num
+        write_ue(&mut w, 2); // pic_order_cnt_type
+        write_ue(&mut w, 1); // max_num_ref_frames
+        w.bit(0);
+        write_ue(&mut w, 79);
+        write_ue(&mut w, 44);
+        w.bit(1); // frame_mbs_only
+        w.bit(1); // direct_8x8
+        w.bit(0); // no cropping
+        w.bit(1); // VUI
+        for _ in 0..8 {
+            w.bit(0); // aspect, overscan, signal, chroma, timing, nal hrd, vcl hrd, pic_struct
+        }
+        w.bit(0); // no bitstream restrictions
+        w.bit(1);
+        while w.n % 8 != 0 {
+            w.bit(0);
+        }
+        let mut stream = vec![0, 0, 0, 1, 0x67];
+        stream.extend_from_slice(&escape(&w.bytes));
+        stream.extend_from_slice(&[0, 0, 0, 1, 0x68, 0xCE]);
+        stream
+    }
+
+    #[test]
+    fn decoders_are_told_frames_are_never_reordered() {
+        let stream = sps_without_restrictions();
+        let rewritten = without_reordering(&stream).expect("SPS is rewritten");
+        let sps = sps_of(&rewritten);
+        let restrictions = sps.vui_parameters.as_ref().unwrap().bitstream_restrictions.as_ref().unwrap();
+        assert_eq!(restrictions.max_num_reorder_frames, 0);
+        assert_eq!(restrictions.max_dec_frame_buffering, 1);
+        assert_eq!(sps.pixel_dimensions().unwrap(), (1280, 720));
+        assert!(rewritten.ends_with(&[0, 0, 0, 1, 0x68, 0xCE]));
+        assert!(without_reordering(&rewritten).is_none());
     }
 
     /// An SPS as Quick Sync writes it: High profile, 1280x720, a video signal type with

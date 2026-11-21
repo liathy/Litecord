@@ -159,6 +159,27 @@ pub fn protect_rtp(
     Some(out)
 }
 
+/// Opens an incoming RTCP packet protected like `protect_rtcp`.
+pub fn open_rtcp(key: &[u8], mode: TransportMode, packet: &[u8]) -> Option<Vec<u8>> {
+    if key.len() != 32 || packet.len() < 12 {
+        return None;
+    }
+    let (sealed, suffix) = packet.split_at(packet.len() - 4);
+    let (aad, body) = sealed.split_at(8);
+    match mode {
+        TransportMode::Aes256Gcm => {
+            let mut nonce = [0u8; 12];
+            nonce[0..4].copy_from_slice(suffix);
+            Aes256Gcm::new_from_slice(key).ok()?.decrypt(Nonce::from_slice(&nonce), Payload { msg: body, aad }).ok()
+        }
+        TransportMode::XChaCha20Poly1305 => {
+            let mut nonce = [0u8; 24];
+            nonce[0..4].copy_from_slice(suffix);
+            XChaCha20Poly1305::new_from_slice(key).ok()?.decrypt(XNonce::from_slice(&nonce), Payload { msg: body, aad }).ok()
+        }
+    }
+}
+
 /// RTP header extension asking viewers to play with as little delay as possible
 /// (one-byte form, id 5: playout-delay, minimum 0 ms, maximum 100 ms).
 const PLAYOUT_DELAY_PREAMBLE: [u8; 4] = [0xBE, 0xDE, 0x00, 0x01];

@@ -849,6 +849,7 @@ pub async fn connect_stream_sender(
                         if let Some(version) = pending_dave_version.take() {
                             dave_required.store(version > 0, Ordering::Relaxed);
                         }
+                        crate::screen_capture::types::request_intra_keyframe();
                     }
                     24 => {
                         if value["d"]["epoch"].as_u64() == Some(1) {
@@ -961,7 +962,7 @@ pub async fn connect_stream_sender(
                             );
                         }
                     }
-                    _ => {}
+                    other => log::info!("🎬 [GO LIVE TX] Gateway op {}", other),
                 }
             }
             Message::Binary(data) => {
@@ -969,6 +970,11 @@ pub async fn connect_stream_sender(
                     if let Err(e) = handle_dave_binary(&data, &dave, &saved_external_sender, user_id, dave_group, &write).await {
                         log::warn!("🎬 [GO LIVE TX] Falha no DAVE: {}", e);
                         break;
+                    }
+                    // A commit or welcome changes the key: new viewers need a fresh full frame.
+                    if matches!(data[0], 29 | 30) {
+                        crate::screen_capture::types::request_intra_keyframe();
+                        log::info!("🔐 [GO LIVE TX] Grupo DAVE mudou: {:?} membros", dave.lock().unwrap().as_ref().and_then(|s| s.get_user_ids()).map(|u| u.len()));
                     }
                 }
             }

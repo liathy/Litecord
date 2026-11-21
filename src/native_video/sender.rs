@@ -15,7 +15,7 @@ use log::{info, warn};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-use super::crypto::{protect_rtcp, protect_video_rtp, TransportMode};
+use super::crypto::{open_rtcp, protect_rtcp, protect_video_rtp, TransportMode};
 use super::h264::H264Packetizer;
 use super::rtp::is_rtcp;
 
@@ -58,6 +58,20 @@ pub fn set_outbound_quality(height: u32, fps: u32) {
 
 pub fn outbound_quality() -> (u32, u32, u32) {
     *OUTBOUND_QUALITY.lock().unwrap()
+}
+
+/// From an opened receiver report: the highest sequence, the packets lost and the loss
+/// fraction the server reports for our video.
+fn parse_receiver_report(body: &[u8], video_ssrc: u32) -> Option<(u32, u32, u8)> {
+    body.chunks_exact(24).find_map(|block| {
+        (u32::from_be_bytes(block[0..4].try_into().ok()?) == video_ssrc).then(|| {
+            (
+                u32::from_be_bytes([block[8], block[9], block[10], block[11]]),
+                u32::from_be_bytes([0, block[5], block[6], block[7]]),
+                block[4],
+            )
+        })
+    })
 }
 
 /// RTCP feedback asking for a picture a decoder can start from: PLI or FIR.
@@ -147,9 +161,11 @@ pub fn start_sender(
     let total_packets_rtp = Arc::clone(&total_packets);
     let total_octets_rtp = Arc::clone(&total_octets);
     let total_packets_rtcp = Arc::clone(&total_packets);
+    let total_packets = Arc::clone(&total_packets);
     let total_octets_rtcp = Arc::clone(&total_octets);
     let nonce_counter_rtcp = Arc::clone(&nonce_counter);
     let key_rtcp = key.clone();
+    let key_feedback = key.clone();
 
     // 1. Outbound Video RTP Worker Task
     tokio::spawn(async move {
@@ -167,6 +183,8 @@ pub fn start_sender(
                 break;
             }
             let pts_ms = stream_start.elapsed().as_millis() as u64;
+            // Before DAVE: parameter sets stay readable, and viewers must not hold frames back.
+            let frame = crate::encoder::h264_vui::without_reordering(&frame).unwrap_or(frame);
             let Some(protected) = protect_frame(&dave, dave_required.load(Ordering::Relaxed), &frame) else {
                 if !waiting_for_dave {
                     waiting_for_dave = true;
@@ -243,6 +261,8 @@ pub fn start_sender(
         let mut buf = [0u8; 2048];
         let mut last_keyframe: Option<Instant> = None;
         let (mut reports, mut keyframe_requests, mut last_log) = (0u32, 0u32, Instant::now());
+        let mut kinds: std::collections::BTreeMap<(u8, u8), u32> = Default::default();
+        let mut server_saw: Option<(u32, u32, u8)> = None;
         while IS_BROADCASTING.load(Ordering::Relaxed) {
             // Timed so the task (and its socket) ends soon after the stream stops.
             let Ok(received) = tokio::time::timeout(Duration::from_millis(500), socket_recv.recv_from(&mut buf)).await else {
@@ -252,9 +272,19 @@ pub fn start_sender(
                 if is_rtcp(&buf[..len]) {
                     reports += 1;
                     keyframe_requests += u32::from(is_keyframe_request(&buf[..len]));
+                    *kinds.entry((buf[1], buf[0] & 0x1F)).or_default() += 1;
+                    if buf[1] == 201 && buf[0] & 0x1F > 0 {
+                        if let Some(report) = open_rtcp(&key_feedback, mode, &buf[..len]) {
+                            server_saw = parse_receiver_report(&report, video_ssrc).or(server_saw);
+                        }
+                    }
                 }
                 if last_log.elapsed() >= Duration::from_secs(5) {
-                    info!("📡 [GO LIVE TX] Retorno de quem assiste em 5 s: {} RTCP, {} pedidos de keyframe", reports, keyframe_requests);
+                    info!(
+                        "📡 [GO LIVE TX] Retorno em 5 s: {} RTCP {:?}, {} pedidos de keyframe, servidor viu (seq, perdidos, fração)={:?}, enviados={}",
+                        reports, kinds, keyframe_requests, server_saw, total_packets.load(Ordering::Relaxed)
+                    );
+                    kinds.clear();
                     (reports, keyframe_requests, last_log) = (0, 0, Instant::now());
                 }
                 if is_keyframe_request(&buf[..len])
