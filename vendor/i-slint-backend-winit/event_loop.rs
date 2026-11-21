@@ -296,6 +296,9 @@ impl winit::application::ApplicationHandler<SlintEvent> for EventLoopState {
                     }
                     i_slint_common::for_each_keys!(winit_key_to_char)
                 }
+                if matches!(key_code, winit::keyboard::Key::Dead(_)) {
+                    return;
+                }
                 #[allow(unused_mut)]
                 let mut text = to_slint_key(&event, &key_code);
 
