@@ -1,6 +1,7 @@
 import { ScrollView, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { AppTheme, ChatTypography , TypeScale } from "../theme.slint";
 import { Tr } from "tr.slint";
+import { MessageReaction, MessageToolbar, ReactionPill } from "message_tools.slint";
 
 // The one GIF playing right now, while the mouse is over it.
 export global GifPlayback {
@@ -56,6 +57,7 @@ export struct MessageAttachment {
     height: int,
     is_image: bool,
     is_gif: bool,
+    is_favorite: bool,
     is_downloaded: bool,
     is_loading: bool,
     full_img: image,
@@ -100,6 +102,8 @@ export struct ChatMessage {
     buttons: [MessageButton],
     attachments: [MessageAttachment],
     invites: [InviteCard],
+    reactions: [MessageReaction],
+    is_own: bool,
 }
 
 component MentionPill inherits Rectangle {
@@ -137,6 +141,8 @@ export component ChatMessagesView inherits Rectangle {
     callback download_attachment(string, string, string);
     callback click_command(string);
     callback bottom_state_changed(bool);
+    in property <[MessageReaction]> quick_reactions;
+    callback message_action(string, string, string, length, length);
 
     changed scroll_trigger => {
         root.scroll_to_bottom();
@@ -254,6 +260,17 @@ export component ChatMessagesView inherits Rectangle {
 
                 // Group headers already carry their full timestamp beside the name;
                 // the gutter timestamp is for compact continuation rows only.
+                property <bool> toolbar_hovered: false;
+                if (row_hover.has-hover || toolbar_hovered) && msg.id != "": toolbar := MessageToolbar {
+                    x: parent.width - self.width - 12px;
+                    y: -14px;
+                    z: 20;
+                    quick: root.quick_reactions;
+                    is_own: msg.is_own;
+                    changed hovered => { toolbar_hovered = self.hovered; }
+                    action(name, extra, x, y) => { root.message_action(name, msg.id, extra, x, y); }
+                }
+
                 if row_hover.has-hover && !msg.show_header && msg.hover_timestamp != "": Text {
                     x: 0px;
                     y: 3px;
@@ -1181,8 +1198,33 @@ export component ChatMessagesView inherits Rectangle {
                                 image-fit: contain;
                             }
 
-                            if att.is_gif && att.is_downloaded : TouchArea {
+                            if att.is_gif && att.is_downloaded : gif_area := TouchArea {
                                 changed has-hover => { GifPlayback.hover(att.id, att.url, self.has-hover); }
+
+                                if gif_area.has-hover || att.is_favorite: Rectangle {
+                                    x: 6px;
+                                    y: 6px;
+                                    width: 30px;
+                                    height: 30px;
+                                    border-radius: 6px;
+                                    background: star_ta.has-hover ? AppTheme.backdrop-max : AppTheme.backdrop;
+                                    animate background { duration: 100ms; easing: ease-out; }
+                                    accessible-role: button;
+                                    accessible-label: att.is_favorite ? "Remove from Favorites" : "Add to Favorites";
+                                    Image {
+                                        x: 5px;
+                                        y: 5px;
+                                        width: 20px;
+                                        height: 20px;
+                                        source: att.is_favorite ? @image-url("../../assets/star.svg") : @image-url("../../assets/star-outline.svg");
+                                        colorize: att.is_favorite ? AppTheme.warning : AppTheme.solid-white;
+                                        image-fit: contain;
+                                    }
+                                    star_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.message_action("favorite", att.url, "", 0px, 0px); }
+                                    }
+                                }
                             }
 
                             // 2. Low-res pixelated / blurred preview thumbnail
@@ -1288,6 +1330,16 @@ export component ChatMessagesView inherits Rectangle {
                                     clicked => { root.open_link(att.url); }
                                 }
                             }
+                        }
+                    }
+
+                    if msg.reactions.length > 0: HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        padding-top: 2px;
+                        for reaction in msg.reactions: ReactionPill {
+                            reaction: reaction;
+                            clicked => { root.message_action("react", msg.id, reaction.key, 0px, 0px); }
                         }
                     }
 

@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+pub mod chat_actions;
 pub mod dm_close;
 pub mod file_upload;
 pub mod gif_player;

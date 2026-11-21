@@ -10,6 +10,7 @@ import { MemberListPanel, MemberRow, ProfileCard, ProfileRole, UserContextMenu }
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
+import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard } from "components/message_tools.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
 
@@ -343,6 +344,11 @@ export component AppWindow inherits Window {
     callback toggle_soundboard_panel();
 
     select_emoji(code) => {
+        if (root.reaction_target_id != "") {
+            root.message_action("react_picked", root.reaction_target_id, code, 0px, 0px);
+            root.show_emoji_picker = false;
+            return;
+        }
         root.chat_input_text = root.chat_input_text + code + " ";
         root.show_emoji_picker = false;
     }
@@ -459,6 +465,9 @@ export component AppWindow inherits Window {
     }
 
     changed is_voice_focused => {
+        root.show_gif_picker = false;
+        root.show_emoji_picker = false;
+        root.show_sticker_picker = false;
         if (!root.is_voice_focused) {
             root.call_chat_docked = false;
             root.scroll_chat_to_bottom();
@@ -651,6 +660,52 @@ export component AppWindow inherits Window {
     in-out property <string> current_voice_channel: "";
     in-out property <bool> is_voice_focused: false;
     in-out property <bool> call_chrome_visible: true;
+    in-out property <[MessageReaction]> quick_reactions: [];
+    callback message_action(string, string, string, length, length);
+    in-out property <string> reaction_target_id: "";
+    in-out property <string> reply_to_id: "";
+    in-out property <string> reply_to_name: "";
+    in-out property <string> editing_message_id: "";
+    in-out property <string> message_menu_id: "";
+    in-out property <length> message_menu_x;
+    in-out property <length> message_menu_y;
+    in-out property <bool> message_menu_own;
+    in-out property <bool> message_menu_pinned;
+    in-out property <bool> message_menu_can_manage;
+    in-out property <string> confirm_text: "";
+    in-out property <string> confirm_action: "";
+    in-out property <string> confirm_message_id: "";
+    in-out property <string> forward_message_id: "";
+    in-out property <[ForwardTarget]> forward_targets: [];
+    in-out property <[MentionItem]> mention_items: [];
+    in-out property <bool> show_mentions: false;
+    in-out property <int> mention_index: 0;
+    callback pick_mention(int);
+    in-out property <bool> show_sticker_picker: false;
+    in-out property <[GifRow]> sticker_rows: [];
+    in-out property <bool> sticker_empty: false;
+    callback open_stickers();
+    callback send_sticker(string);
+    callback open_expression(string);
+    open_expression(tab) => {
+        root.show_gif_picker = tab == "gif";
+        root.show_sticker_picker = tab == "sticker";
+        root.show_emoji_picker = tab == "emoji";
+        root.show_soundboard_panel = false;
+        root.show_command_suggestions = false;
+        if (tab == "gif") { root.open_gif_picker(); }
+        if (tab == "sticker") { root.open_stickers(); }
+    }
+    in-out property <string> stream_preview_uid: "";
+    in-out property <string> stream_preview_name: "";
+    in-out property <length> stream_preview_y;
+    in-out property <bool> stream_row_hover_active: false;
+    in-out property <image> stream_preview_image;
+    in-out property <bool> stream_preview_has_image: false;
+    callback stream_row_hovered(string);
+    in-out property <string> profile_user_id;
+    in-out property <string> profile_mutual;
+    callback profile_send_dm(string);
     // The call's chat, docked beside the stage while the call stays on screen.
     in-out property <bool> call_chat_docked: false;
     out property <bool> call_chat_open: root.call_chat_docked && root.is_voice_focused && root.is_in_voice;
@@ -1671,6 +1726,15 @@ export component AppWindow inherits Window {
                 open_voice_chat => { root.open_voice_chat(); }
                 soundboard_open: root.show_soundboard_panel;
                 toggle_soundboard => { root.toggle_soundboard_panel(); }
+                stream_row_hover(id, name, y, active) => {
+                    root.stream_row_hover_active = active;
+                    if (active) {
+                        root.stream_preview_uid = id;
+                        root.stream_preview_name = name;
+                        root.stream_preview_y = y;
+                        root.stream_row_hovered(id);
+                    }
+                }
                 open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                 is_screen_sharing: root.is_screen_sharing;
                 open_stream_modal => {
@@ -3146,6 +3210,8 @@ export component AppWindow inherits Window {
                         load_older_messages => { root.load_older_messages(); }
                         open_link(url) => { root.open_link(url); }
                         open_profile(id) => { root.open_profile(id); }
+                        quick_reactions: root.quick_reactions;
+                        message_action(name, id, extra, x, y) => { root.message_action(name, id, extra, x, y); }
                         open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                         download_attachment(id, fn, url) => { root.download_attachment(id, fn, url); }
                         click_command(cmd) => {
@@ -3380,6 +3446,46 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    if root.reply_to_id != "" || root.editing_message_id != "": Rectangle {
+                        height: 32px;
+                        background: AppTheme.surface-elevated;
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 12px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: root.editing_message_id != "" ? "Editing message" : "Replying to " + root.reply_to_name;
+                                color: AppTheme.text-secondary;
+                                font-size: TypeScale.small;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    border-radius: 11px;
+                                    background: cancel_compose_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                    Image {
+                                        width: 10px;
+                                        height: 10px;
+                                        source: @image-url("../assets/x.svg");
+                                        colorize: AppTheme.text-muted;
+                                    }
+                                    cancel_compose_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            if (root.editing_message_id != "") { root.chat_input_text = ""; }
+                                            root.editing_message_id = "";
+                                            root.reply_to_id = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Message / Smart Command Input Box
                     Rectangle {
                         height: 64px;
@@ -3571,6 +3677,25 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center;
                                     single-line: true;
                                     key-pressed(event) => {
+                                        if (root.show_mentions && root.mention_items.length > 0) {
+                                            if (event.text == Key.UpArrow) {
+                                                root.mention_index = root.mention_index > 0 ? root.mention_index - 1 : root.mention_items.length - 1;
+                                                return accept;
+                                            }
+                                            if (event.text == Key.DownArrow) {
+                                                root.mention_index = root.mention_index < root.mention_items.length - 1 ? root.mention_index + 1 : 0;
+                                                return accept;
+                                            }
+                                            if (event.text == Key.Tab || event.text == Key.Return) {
+                                                root.pick_mention(root.mention_index);
+                                                self.set-selection-offsets(2147483647, 2147483647);
+                                                return accept;
+                                            }
+                                            if (event.text == Key.Escape) {
+                                                root.show_mentions = false;
+                                                return accept;
+                                            }
+                                        }
                                         if (root.show_command_suggestions && root.command_suggestions.length > 0) {
                                             if (event.text == Key.UpArrow) {
                                                 root.move_suggestion_up();
@@ -3635,12 +3760,41 @@ export component AppWindow inherits Window {
                                     gif_btn_ta := TouchArea {
                                         mouse-cursor: pointer;
                                         clicked => {
-                                            root.show_gif_picker = !root.show_gif_picker;
                                             if (root.show_gif_picker) {
-                                                root.show_emoji_picker = false;
-                                                root.show_soundboard_panel = false;
-                                                root.show_command_suggestions = false;
-                                                root.open_gif_picker();
+                                                root.show_gif_picker = false;
+                                            } else {
+                                                root.open_expression("gif");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Sticker picker
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: sticker_btn_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                    Image {
+                                        x: 5px;
+                                        y: 5px;
+                                        width: 22px;
+                                        height: 22px;
+                                        source: @image-url("../assets/sticker.svg");
+                                        colorize: sticker_btn_ta.has-hover || root.show_sticker_picker ? AppTheme.text-strong : AppTheme.text-secondary;
+                                        image-fit: contain;
+                                    }
+                                    sticker_btn_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            if (root.show_sticker_picker) {
+                                                root.show_sticker_picker = false;
+                                            } else {
+                                                root.open_expression("sticker");
                                             }
                                         }
                                     }
@@ -3668,10 +3822,11 @@ export component AppWindow inherits Window {
                                     emoji_btn_ta := TouchArea {
                                         mouse-cursor: pointer;
                                         clicked => {
-                                            root.show_emoji_picker = !root.show_emoji_picker;
                                             if (root.show_emoji_picker) {
-                                                root.show_soundboard_panel = false;
-                                                root.show_command_suggestions = false;
+                                                root.show_emoji_picker = false;
+                                            } else {
+                                                root.reaction_target_id = "";
+                                                root.open_expression("emoji");
                                             }
                                         }
                                     }
@@ -3801,6 +3956,8 @@ export component AppWindow inherits Window {
         has_avatar: root.profile_has_avatar;
         accent: root.profile_accent;
         roles: root.profile_roles;
+        mutual: root.profile_mutual;
+        send_dm(text) => { root.profile_send_dm(text); }
         close => { root.show_profile = false; }
     }
 
@@ -3931,12 +4088,9 @@ export component AppWindow inherits Window {
                                 spacing: 8px;
                                 alignment: space-between;
 
-                                Text {
-                                    text: "Emojis";
-                                    color: AppTheme.text-strong;
-                                    font-size: 13px;
-                                    font-weight: 700;
-                                    vertical-alignment: center;
+                                ExpressionTabs {
+                                    active: "emoji";
+                                    select(tab) => { root.open_expression(tab); }
                                 }
 
                                 Rectangle {
@@ -4025,6 +4179,11 @@ export component AppWindow inherits Window {
                             padding: 10px;
                             spacing: 8px;
 
+                            ExpressionTabs {
+                                active: "gif";
+                                select(tab) => { root.open_expression(tab); }
+                            }
+
                             HorizontalLayout {
                                 spacing: 8px;
 
@@ -4065,7 +4224,7 @@ export component AppWindow inherits Window {
                                 height: 26px;
 
                                 Rectangle {
-                                    width: 92px;
+                                    width: 76px;
                                     border-radius: 5px;
                                     background: root.gif_tab == "favorites" ? AppTheme.interactive-selected : (gif_fav_ta.has-hover ? AppTheme.interactive-hover : transparent);
                                     Text {
@@ -4084,7 +4243,7 @@ export component AppWindow inherits Window {
                                 }
 
                                 Rectangle {
-                                    width: 92px;
+                                    width: 76px;
                                     border-radius: 5px;
                                     background: root.gif_tab == "trending" ? AppTheme.interactive-selected : (gif_trend_ta.has-hover ? AppTheme.interactive-hover : transparent);
                                     Text {
@@ -4099,6 +4258,22 @@ export component AppWindow inherits Window {
                                             root.gif_tab = "trending";
                                             root.open_gif_picker();
                                         }
+                                    }
+                                }
+
+                                for term in ["hello", "lol", "love", "happy birthday"]: Rectangle {
+                                    width: term_text.preferred-width + 14px;
+                                    border-radius: 5px;
+                                    background: term_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                    term_text := Text {
+                                        text: term;
+                                        color: AppTheme.text-primary;
+                                        font-size: TypeScale.caption;
+                                        font-weight: 700;
+                                    }
+                                    term_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.search_gifs(term); }
                                     }
                                 }
                             }
@@ -4153,6 +4328,203 @@ export component AppWindow inherits Window {
                             }
                         }
                     }
+
+    // Stickers, in the same popup as GIFs and emoji.
+    if root.show_sticker_picker: Rectangle {
+        x: root.width - self.width - root.member_panel_width - 16px;
+        y: root.height - self.height - 76px;
+        width: 480px;
+        height: 520px;
+        background: AppTheme.surface-elevated;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        TouchArea {}
+        VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+            ExpressionTabs {
+                active: "sticker";
+                select(tab) => { root.open_expression(tab); }
+            }
+            if root.sticker_empty: Text {
+                text: "This server has no stickers you can send.";
+                color: AppTheme.text-muted;
+                font-size: TypeScale.small;
+                horizontal-alignment: center;
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    for row in root.sticker_rows: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for sticker in row.items: Rectangle {
+                            width: 108px;
+                            height: 108px;
+                            border-radius: 6px;
+                            background: sticker_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                            if sticker.has_preview: Image {
+                                x: 6px;
+                                y: 6px;
+                                width: 96px;
+                                height: 96px;
+                                source: sticker.preview;
+                                image-fit: contain;
+                            }
+                            sticker_cell_ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.send_sticker(sticker.url);
+                                    root.show_sticker_picker = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // @ autofill above the message bar.
+    if root.show_mentions && root.mention_items.length > 0: MentionPopup {
+        x: root.channel_sidebar_width + 88px;
+        y: root.height - self.height - 76px;
+        width: Math.max(320px, root.width - root.channel_sidebar_width - root.member_panel_width - 112px);
+        items: root.mention_items;
+        active: root.mention_index;
+        pick(index) => { root.pick_mention(index); }
+    }
+
+    // Preview of a stream while its row in the channel list is hovered.
+    preview_card := StreamPreviewCard {
+        visible: root.stream_row_hover_active || self.hovered;
+        x: root.channel_sidebar_width + 70px;
+        y: Math.max(40px, Math.min(root.stream_preview_y - 60px, root.height - self.height - 12px));
+        name: root.stream_preview_name;
+        preview: root.stream_preview_image;
+        has_preview: root.stream_preview_has_image;
+        watching: root.active_stream_user_id == root.stream_preview_uid && root.has_active_stream;
+        watch => {
+            root.unhide_stream(root.stream_preview_uid);
+            root.stream_row_hover_active = false;
+            if (!root.is_voice_focused) { root.toggle_voice_focus(); }
+        }
+    }
+
+    // The watched stream keeps playing small while the chat is on screen.
+    if root.is_in_voice && !root.is_voice_focused && root.has_active_stream && root.active_stream_user_id != "": Rectangle {
+        property <length> view_x: self.absolute-position.x;
+        property <length> view_y: self.absolute-position.y;
+        x: root.width - self.width - root.member_panel_width - 20px;
+        y: root.height - self.height - 84px;
+        width: 320px;
+        height: 180px;
+        z: 30;
+        border-radius: 8px;
+        background: root.gpu_video_main ? #010203 : AppTheme.surface-media;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        clip: true;
+        init => { root.stream_viewport_changed(view_x, view_y, self.width, self.height); }
+        changed view_x => { root.stream_viewport_changed(view_x, view_y, self.width, self.height); }
+        changed view_y => { root.stream_viewport_changed(view_x, view_y, self.width, self.height); }
+        if !root.gpu_video_main: Image {
+            width: 100%;
+            height: 100%;
+            source: root.remote_stream_frame;
+            image-fit: contain;
+        }
+        pip_ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggle_voice_focus(); }
+        }
+        if pip_ta.has-hover || pip_back_ta.has-hover || pip_pop_ta.has-hover || pip_stop_ta.has-hover: Rectangle {
+            height: 34px;
+            y: 0px;
+            background: @linear-gradient(180deg, #000000c8 0%, #00000000 100%);
+        }
+        Text {
+            x: 10px;
+            y: parent.height - 26px;
+            width: parent.width - 110px;
+            text: root.active_stream_user;
+            color: AppTheme.solid-white;
+            font-size: TypeScale.small;
+            font-weight: 600;
+            overflow: elide;
+        }
+        Rectangle {
+            x: 6px;
+            y: 6px;
+            width: 26px;
+            height: 26px;
+            border-radius: 4px;
+            background: pip_back_ta.has-hover ? AppTheme.backdrop-max : AppTheme.backdrop;
+            Image { width: 16px; height: 16px; source: @image-url("../assets/arrow-left.svg"); colorize: AppTheme.solid-white; }
+            pip_back_ta := TouchArea { mouse-cursor: pointer; clicked => { root.toggle_voice_focus(); } }
+        }
+        Rectangle {
+            x: parent.width - 66px;
+            y: parent.height - 32px;
+            width: 26px;
+            height: 26px;
+            border-radius: 4px;
+            background: pip_pop_ta.has-hover ? AppTheme.backdrop-max : AppTheme.backdrop;
+            Image { width: 15px; height: 15px; source: @image-url("../assets/popout.svg"); colorize: AppTheme.solid-white; }
+            pip_pop_ta := TouchArea { mouse-cursor: pointer; clicked => { root.popout_stream_window(root.active_stream_user_id, root.active_stream_user); } }
+        }
+        Rectangle {
+            x: parent.width - 34px;
+            y: parent.height - 32px;
+            width: 26px;
+            height: 26px;
+            border-radius: 4px;
+            background: pip_stop_ta.has-hover ? AppTheme.danger-action : AppTheme.backdrop;
+            Image { width: 16px; height: 16px; source: @image-url("../assets/stop-stream.svg"); colorize: AppTheme.solid-white; }
+            pip_stop_ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    let watched = root.active_stream_user_id;
+                    root.focused_stream_uid = "";
+                    root.hide_stream(watched);
+                }
+            }
+        }
+    }
+
+    if root.message_menu_id != "": MessageMenu {
+        width: 100%;
+        height: 100%;
+        menu-x: root.message_menu_x;
+        menu-y: root.message_menu_y;
+        is_own: root.message_menu_own;
+        is_pinned: root.message_menu_pinned;
+        can_manage: root.message_menu_can_manage;
+        close => { root.message_menu_id = ""; }
+        action(name) => { root.message_action(name, root.message_menu_id, "", 0px, 0px); }
+    }
+
+    if root.forward_message_id != "": ForwardPicker {
+        width: 100%;
+        height: 100%;
+        targets: root.forward_targets;
+        close => { root.forward_message_id = ""; }
+        pick(id) => { root.message_action("forward_to", root.forward_message_id, id, 0px, 0px); }
+    }
+
+    if root.confirm_text != "": ConfirmDialog {
+        width: 100%;
+        height: 100%;
+        text: root.confirm_text;
+        cancel => { root.confirm_text = ""; }
+        confirm => { root.message_action("confirm", root.confirm_message_id, "", 0px, 0px); }
+    }
 
     if root.show_user_menu_popup: UserContextMenu {
         x: 0px;

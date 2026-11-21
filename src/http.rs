@@ -466,7 +466,7 @@ impl DiscordHttpClient {
 
     /// A user's full profile, with their profile in this server when one is given.
     pub async fn get_full_profile(&self, user_id: &str, guild_id: Option<&str>) -> Result<serde_json::Value, String> {
-        let mut url = format!("https://discord.com/api/v9/users/{}/profile?with_mutual_guilds=false&with_mutual_friends=false", user_id);
+        let mut url = format!("https://discord.com/api/v9/users/{}/profile?with_mutual_guilds=true&with_mutual_friends=true", user_id);
         if let Some(guild_id) = guild_id {
             url.push_str(&format!("&guild_id={}", guild_id));
         }
@@ -517,6 +517,24 @@ impl DiscordHttpClient {
         } else {
             Err(format!("Discord error {}", resp.status().as_u16()))
         }
+    }
+
+    /// A Discord API call that answers with JSON or nothing.
+    pub async fn discord_call(&self, method: reqwest::Method, path: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+        let url = format!("https://discord.com/api/v9{path}");
+        let mut request = self.client.request(method, &url);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request.send().await.map_err(|e| format!("network: {e}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("HTTP {}", status.as_u16()));
+        }
+        if status.as_u16() == 204 {
+            return Ok(serde_json::Value::Null);
+        }
+        Ok(response.json().await.unwrap_or(serde_json::Value::Null))
     }
 
     /// Opens (or finds) the DM with a user and returns its channel id.

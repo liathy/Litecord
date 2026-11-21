@@ -162,7 +162,10 @@ export component ProfileCard inherits Rectangle {
     in property <bool> has_avatar;
     in property <color> accent;
     in property <[ProfileRole]> roles;
+    in property <string> mutual;
+    in property <bool> can_message: true;
     callback close();
+    callback send_dm(string);
 
     background: AppTheme.backdrop-soft;
 
@@ -171,7 +174,7 @@ export component ProfileCard inherits Rectangle {
     }
 
     card := Rectangle {
-        width: 340px;
+        width: 360px;
         height: Math.min(content.preferred-height, root.height - 40px);
         background: AppTheme.surface-elevated;
         border-radius: 10px;
@@ -186,21 +189,21 @@ export component ProfileCard inherits Rectangle {
             alignment: start;
 
             Rectangle {
-                height: 64px;
+                height: 105px;
                 background: root.accent;
             }
 
             HorizontalLayout {
                 padding-left: 16px;
                 padding-right: 16px;
-                padding-top: -30px;
+                padding-top: -46px;
                 alignment: start;
 
                 Rectangle {
-                    width: 72px;
-                    height: 72px;
-                    border-radius: 36px;
-                    border-width: 4px;
+                    width: 92px;
+                    height: 92px;
+                    border-radius: 46px;
+                    border-width: 6px;
                     border-color: AppTheme.surface-elevated;
                     background: AppTheme.interactive-selected;
                     clip: true;
@@ -212,10 +215,10 @@ export component ProfileCard inherits Rectangle {
                         font-weight: 700;
                     }
                     if root.has_avatar: Image {
-                        x: 4px;
-                        y: 4px;
-                        width: 64px;
-                        height: 64px;
+                        x: 6px;
+                        y: 6px;
+                        width: 80px;
+                        height: 80px;
                         source: root.avatar;
                         image-fit: cover;
                     }
@@ -242,6 +245,13 @@ export component ProfileCard inherits Rectangle {
                         font-size: TypeScale.small;
                         overflow: elide;
                     }
+                }
+
+                if root.mutual != "": Text {
+                    text: root.mutual;
+                    color: AppTheme.text-muted;
+                    font-size: TypeScale.caption;
+                    overflow: elide;
                 }
 
                 if root.loading: Text {
@@ -306,6 +316,39 @@ export component ProfileCard inherits Rectangle {
                             color: AppTheme.text-primary;
                             font-size: TypeScale.small;
                             overflow: elide;
+                        }
+                    }
+                }
+
+                if root.can_message: Rectangle {
+                    height: 42px;
+                    border-radius: 8px;
+                    background: AppTheme.surface-input;
+                    border-width: 1px;
+                    border-color: AppTheme.border-subtle;
+                    if dm_input.text == "": Text {
+                        x: 12px;
+                        width: parent.width - 24px;
+                        height: parent.height;
+                        text: "Message @" + root.display_name;
+                        color: AppTheme.text-subtle;
+                        font-size: TypeScale.small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    dm_input := TextInput {
+                        x: 12px;
+                        width: parent.width - 24px;
+                        height: parent.height;
+                        color: AppTheme.text-primary;
+                        font-size: TypeScale.small;
+                        vertical-alignment: center;
+                        single-line: true;
+                        accepted => {
+                            if (self.text != "") {
+                                root.send_dm(self.text);
+                                self.text = "";
+                            }
                         }
                     }
                 }

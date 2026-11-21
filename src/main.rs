@@ -4480,6 +4480,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     crate::ui::gif_player::install(&app);
     crate::ui::navigation::install(&app);
+    crate::ui::chat_actions::install(&app);
+
+    let app_weak_msg_action = app_weak.clone();
+    let http_msg_action = Arc::clone(&http_client);
+    app.on_message_action(move |name, id, extra, x, y| {
+        if let Some(ui) = app_weak_msg_action.upgrade() {
+            let http = http_msg_action.lock().unwrap().as_ref().cloned();
+            crate::ui::chat_actions::action(&ui, http, name.as_str(), id.as_str(), extra.as_str(), x, y);
+        }
+    });
+    let app_weak_pick_mention = app_weak.clone();
+    app.on_pick_mention(move |index| {
+        if let Some(ui) = app_weak_pick_mention.upgrade() {
+            crate::ui::chat_actions::pick_mention(&ui, index);
+        }
+    });
+    let app_weak_stickers = app_weak.clone();
+    let http_stickers = Arc::clone(&http_client);
+    app.on_open_stickers(move || {
+        if let Some(ui) = app_weak_stickers.upgrade() {
+            let http = http_stickers.lock().unwrap().as_ref().cloned();
+            crate::ui::gif_picker::open_stickers(&ui, http);
+        }
+    });
+    let app_weak_send_sticker = app_weak.clone();
+    let http_send_sticker = Arc::clone(&http_client);
+    app.on_send_sticker(move |sticker| {
+        let Some(ui) = app_weak_send_sticker.upgrade() else { return };
+        let channel = ui.get_active_channel_id().to_string();
+        let Some(http) = http_send_sticker.lock().unwrap().as_ref().cloned() else { return };
+        let body = serde_json::json!({ "sticker_ids": [sticker.as_str()] });
+        tokio::spawn(async move {
+            if let Err(error) = http.discord_call(reqwest::Method::POST, &format!("/channels/{channel}/messages"), Some(body)).await {
+                log::warn!("Figurinha não enviada: {}", error);
+            }
+        });
+    });
+    let app_weak_stream_hover = app_weak.clone();
+    let http_stream_hover = Arc::clone(&http_client);
+    app.on_stream_row_hovered(move |user_id| {
+        if let Some(ui) = app_weak_stream_hover.upgrade() {
+            let http = http_stream_hover.lock().unwrap().as_ref().cloned();
+            crate::ui::chat_actions::stream_hover(&ui, http, user_id.as_str());
+        }
+    });
+    let app_weak_profile_dm = app_weak.clone();
+    let http_profile_dm = Arc::clone(&http_client);
+    app.on_profile_send_dm(move |text| {
+        let Some(ui) = app_weak_profile_dm.upgrade() else { return };
+        let user = ui.get_profile_user_id().to_string();
+        let Some(http) = http_profile_dm.lock().unwrap().as_ref().cloned() else { return };
+        let content = text.to_string();
+        ui.set_show_profile(false);
+        tokio::spawn(async move {
+            match http.open_dm(&user).await {
+                Ok(channel) => {
+                    let _ = http.send_message(&channel, &content).await;
+                }
+                Err(error) => log::warn!("DM não aberta: {}", error),
+            }
+        });
+    });
 
     let app_weak_pick_files = app_weak.clone();
     app.on_pick_files(move || {
@@ -4499,12 +4561,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let active_channel_msg = Arc::clone(&active_channel_id);
     let app_weak_msg = app_weak.clone();
     app.on_send_message(move |content: SharedString| {
-        let content_str = content.to_string();
+        let content_str = crate::ui::chat_actions::encode_mentions(content.as_str());
         let channel_id = active_channel_msg.lock().unwrap().clone();
         invalidate_message_cache(&channel_id);
         let http_opt = http_client_msg.lock().unwrap().as_ref().cloned();
 
         if let Some(ui) = app_weak_msg.upgrade() {
+            ui.set_show_mentions(false);
+            if crate::ui::chat_actions::send_special(&ui, http_opt.clone(), &channel_id, &content_str) {
+                return;
+            }
             if ui.get_pending_files().row_count() > 0 {
                 crate::ui::file_upload::send(&ui, http_opt, channel_id, content_str);
                 return;
@@ -4647,6 +4713,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_handle_input_change(move |text: SharedString| {
         if let Some(ui) = app_weak_inp.upgrade() {
             let t = text.to_string();
+            crate::ui::chat_actions::mention_input(&ui, &t);
             let trimmed = t.trim();
             if trimmed.starts_with('/') {
                 let query = trimmed.to_lowercase();

@@ -70,6 +70,8 @@ pub(crate) fn valid_avatar_hash(hash: &str) -> bool {
 pub fn set_message_metadata(message: &mut ChatMessage, author_id: &str, created_at: &str) {
     message.author_id = author_id.into();
     message.created_at = created_at.into();
+    message.is_own = !author_id.is_empty() && author_id == crate::gateway::get_my_user_id().to_string();
+    message.reactions = crate::ui::chat_actions::rows(message.id.as_str());
 
     if let Some(sent_at) = parse_local_time(message.created_at.as_str()) {
         message.timestamp = sent_at.format("%d/%m/%Y %H:%M").to_string().into();

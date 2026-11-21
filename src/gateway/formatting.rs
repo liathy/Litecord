@@ -1239,10 +1239,12 @@ fn gif_embed_attachment(embed: &Value) -> Option<MessageAttachmentData> {
     }
     let thumbnail = &embed["thumbnail"];
     let poster = thumbnail["proxy_url"].as_str().or_else(|| thumbnail["url"].as_str()).filter(|url| !url.is_empty())?;
+    let animation = gif_source_url(embed)?;
+    crate::ui::chat_actions::remember_gif_page(&animation, page);
     Some(MessageAttachmentData {
         id: embed_image_id(page),
         filename: "gif_preview.png".to_string(),
-        url: gif_source_url(embed)?,
+        url: animation,
         proxy_url: poster.to_string(),
         size_bytes: 0,
         size_str: String::new(),
@@ -1268,6 +1270,7 @@ pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<Mess
     let mut reply_command = String::new();
     let msg_type = m["type"].as_u64().unwrap_or(0);
     register_mentions(m);
+    crate::ui::chat_actions::remember(m);
 
     // Extract embed color (first embed's color if present)
     let embed_color = m["embeds"].as_array()

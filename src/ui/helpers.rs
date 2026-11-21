@@ -958,6 +958,7 @@ pub fn map_message_attachments(
             height,
             is_image: a.is_image,
             is_gif: a.content_type == "image/gif",
+            is_favorite: a.content_type == "image/gif" && crate::ui::chat_actions::is_favorite(&a.url),
             is_downloaded,
             is_loading,
             full_img,

@@ -215,6 +215,7 @@ pub struct Profile {
     pub avatar_url: String,
     pub accent: Option<u32>,
     pub role_ids: Vec<String>,
+    pub mutual: String,
 }
 
 /// Reads `/users/{id}/profile`, or a plain user object. The server's profile wins.
@@ -248,8 +249,51 @@ pub fn parse_profile(body: &Value) -> Option<Profile> {
             .as_array()
             .map(|roles| roles.iter().filter_map(|r| r.as_str().map(str::to_owned)).collect())
             .unwrap_or_default(),
+        mutual: mutual_text(body),
         id,
     })
+}
+
+fn mutual_text(body: &Value) -> String {
+    let friends = body["mutual_friends"].as_array().map(|list| list.len() as u64).or_else(|| body["mutual_friends_count"].as_u64()).unwrap_or(0);
+    let servers = body["mutual_guilds"].as_array().map_or(0, |list| list.len());
+    let plural = |count: u64, name: &str| format!("{count} Mutual {name}{}", if count == 1 { "" } else { "s" });
+    let mut parts = Vec::new();
+    if friends > 0 {
+        parts.push(plural(friends, "Friend"));
+    }
+    if servers > 0 {
+        parts.push(plural(servers as u64, "Server"));
+    }
+    parts.join(" · ")
+}
+
+/// Server members whose name matches, for `@` autofill: the loaded list, then known names.
+pub fn search(query: &str, limit: usize) -> Vec<(String, String, String)> {
+    let needle = query.to_lowercase();
+    let mut found: Vec<(String, String, String)> = with_state(|state| {
+        state.rows.entries.iter().flatten().filter_map(|entry| match entry {
+            Entry::Member(member) if member.name.to_lowercase().contains(&needle) => {
+                Some((member.id.clone(), crate::utils::styled_text::plain_display_name(&member.name).to_string(), String::new()))
+            }
+            _ => None,
+        }).take(limit).collect()
+    });
+    if found.len() < limit {
+        if let Ok(names) = crate::gateway::get_user_names_store().lock() {
+            for (id, name) in names.iter() {
+                if found.len() >= limit {
+                    break;
+                }
+                let id = id.to_string();
+                if name.to_lowercase().contains(&needle) && !found.iter().any(|(known, _, _)| *known == id) {
+                    found.push((id, crate::utils::styled_text::plain_display_name(name).to_string(), String::new()));
+                }
+            }
+        }
+    }
+    found.sort_by_key(|(_, name, _)| !name.to_lowercase().starts_with(&needle));
+    found
 }
 
 #[derive(Default)]
@@ -470,6 +514,7 @@ fn show_profile(ui: &AppWindow, profile: &Profile, roles: &HashMap<String, Role>
     ui.set_profile_has_avatar(image.size().width > 0);
     ui.set_profile_avatar(image);
     ui.set_profile_accent(rgb(profile.accent.filter(|c| *c != 0).unwrap_or(DEFAULT_ACCENT)));
+    ui.set_profile_mutual(profile.mutual.as_str().into());
 
     let mut held: Vec<&Role> = profile.role_ids.iter().filter_map(|id| roles.get(id)).collect();
     held.sort_by_key(|role| std::cmp::Reverse(role.position));
@@ -489,6 +534,7 @@ pub fn open_profile(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: St
     let request = PROFILE_REQUEST.fetch_add(1, Ordering::SeqCst) + 1;
     let known = crate::gateway::get_user_name(user_id.parse().unwrap_or(0));
     show_profile(ui, &Profile { display_name: known, ..Default::default() }, &HashMap::new());
+    ui.set_profile_user_id(user_id.as_str().into());
     ui.set_profile_loading(true);
     ui.set_show_profile(true);
 

@@ -188,6 +188,10 @@ const HANDLED_EVENTS: &[&str] = &[
     "MESSAGE_CREATE",
     "MESSAGE_UPDATE",
     "MESSAGE_DELETE",
+    "MESSAGE_REACTION_ADD",
+    "MESSAGE_REACTION_REMOVE",
+    "MESSAGE_REACTION_REMOVE_ALL",
+    "MESSAGE_REACTION_REMOVE_EMOJI",
     "CALL_CREATE",
     "CALL_UPDATE",
     "CALL_DELETE",
@@ -1892,6 +1896,10 @@ impl GatewayClient {
                     let id = v["d"]["id"].as_str().unwrap_or("").to_string();
                     let channel_id = v["d"]["channel_id"].as_str().unwrap_or("").to_string();
                     let _ = self.event_tx.send(GatewayEvent::MessageDeleted { id, channel_id }).await;
+                }
+                "MESSAGE_REACTION_ADD" | "MESSAGE_REACTION_REMOVE" | "MESSAGE_REACTION_REMOVE_ALL" | "MESSAGE_REACTION_REMOVE_EMOJI" => {
+                    let my_uid = self.user_id.lock().unwrap().clone().unwrap_or_default();
+                    crate::ui::chat_actions::on_reaction_event(t, &v["d"], &my_uid);
                 }
                 "CALL_CREATE" | "CALL_UPDATE" => {
                     let channel_id = v["d"]["channel_id"].as_str().unwrap_or("").to_string();

@@ -150,7 +150,7 @@ fn show_preview(ui: &AppWindow, url: &str, preview: Image) {
     }
 }
 
-async fn fetch_preview(url: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+pub(crate) async fn fetch_preview(url: &str) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     // Not the Discord client: this request goes to the GIF host and must not carry the token.
     let response = crate::utils::network_settings::shared_http_client().get(url).send().await.ok()?;
     if !response.status().is_success() || response.content_length().unwrap_or(0) > MAX_PREVIEW_BYTES as u64 {
@@ -226,6 +226,9 @@ fn start(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str, favorites
             log::warn!("GIFs indisponíveis: {}", e);
             Vec::new()
         });
+        if favorites {
+            crate::ui::chat_actions::set_favorites(gifs.iter().map(|gif| gif.url.clone()));
+        }
         let app_ui = app.clone();
         let shown = gifs.clone();
         let _ = slint::invoke_from_event_loop(move || {
@@ -239,6 +242,71 @@ fn start(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str, favorites
             }
         });
         load_previews(app, gifs, request);
+    });
+}
+
+/// The open server's stickers. Animated Lottie ones cannot be drawn and are left out.
+pub fn open_stickers(ui: &AppWindow, http: Option<DiscordHttpClient>) {
+    let Some(http) = http else { return };
+    let guild = ui.get_active_guild_id().to_string();
+    ui.set_sticker_rows(ModelRc::new(VecModel::<GifRow>::default()));
+    ui.set_sticker_empty(false);
+    if guild == "@me" {
+        ui.set_sticker_empty(true);
+        return;
+    }
+    let request = REQUEST.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = ui.as_weak();
+    tokio::spawn(async move {
+        let body = http.discord_call(reqwest::Method::GET, &format!("/guilds/{guild}/stickers"), None).await.unwrap_or_default();
+        let stickers: Vec<Gif> = body
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|s| s["available"].as_bool().unwrap_or(true) && s["format_type"].as_u64() != Some(3))
+            .filter_map(|s| {
+                let id = s["id"].as_str()?;
+                let extension = if s["format_type"].as_u64() == Some(4) { "gif" } else { "png" };
+                Some(Gif {
+                    url: id.to_owned(),
+                    title: s["name"].as_str().unwrap_or("").to_owned(),
+                    preview: format!("https://media.discordapp.net/stickers/{id}.{extension}?size=160"),
+                })
+            })
+            .take(MAX_GIFS)
+            .collect();
+        let shown = stickers.clone();
+        let app_ui = app.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = app_ui.upgrade() {
+                ui.set_sticker_empty(shown.is_empty());
+                let rows: Vec<GifRow> = shown.chunks(4).map(|chunk| {
+                    let items: Vec<GifItem> = chunk.iter().map(|s| GifItem { url: s.url.as_str().into(), title: s.title.as_str().into(), ..Default::default() }).collect();
+                    GifRow { items: ModelRc::new(VecModel::from(items)) }
+                }).collect();
+                ui.set_sticker_rows(ModelRc::new(VecModel::from(rows)));
+            }
+        });
+        for sticker in stickers {
+            if REQUEST.load(Ordering::SeqCst) != request {
+                return;
+            }
+            let Some(buffer) = fetch_preview(&sticker.preview).await else { continue };
+            let app_item = app.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = app_item.upgrade() else { return };
+                let image = Image::from_rgba8(buffer);
+                for row in ui.get_sticker_rows().iter() {
+                    for index in 0..row.items.row_count() {
+                        if let Some(mut item) = row.items.row_data(index).filter(|i| i.url == sticker.url.as_str()) {
+                            item.preview = image.clone();
+                            item.has_preview = true;
+                            row.items.set_row_data(index, item);
+                        }
+                    }
+                }
+            });
+        }
     });
 }
 
@@ -303,6 +371,7 @@ pub fn hydrate_emoji_picker(ui: &AppWindow) {
 }
 
 pub fn emoji_loaded(ui: &AppWindow, emoji_id: &str, image: &Image) {
+    crate::ui::chat_actions::emoji_loaded(ui, emoji_id, image);
     if !ui.get_show_emoji_picker() {
         return;
     }

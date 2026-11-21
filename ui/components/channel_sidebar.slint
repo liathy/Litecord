@@ -94,6 +94,7 @@ export component ChannelSidebar inherits Rectangle {
     callback open_user_menu(string, length, length);
     callback open_voice_chat();
     callback toggle_soundboard();
+    callback stream_row_hover(string, string, length, bool);
     in property <bool> soundboard_open;
     in property <bool> is_voice_focused;
     // While the call is on screen its channel is the selected row, not the last text channel.
@@ -433,6 +434,11 @@ export component ChannelSidebar inherits Rectangle {
 
                         touch_area := TouchArea {
                             mouse-cursor: pointer;
+                            changed has-hover => {
+                                if (channel.is_voice_member && channel.is_streaming && !channel.is_self_member) {
+                                    root.stream_row_hover(channel.id, channel.name, self.absolute-position.y, self.has-hover);
+                                }
+                            }
                             pointer-event(event) => {
                                 if (channel.is_voice_member && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                                     root.open_user_menu(channel.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
