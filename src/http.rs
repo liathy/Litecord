@@ -104,6 +104,31 @@ impl DiscordHttpClient {
         }
     }
 
+    /// The account's server folders: its current protobuf settings, or the older JSON ones.
+    pub async fn get_guild_folders(&self) -> Vec<crate::ui::guild_folders::Folder> {
+        use base64::Engine;
+        let url = "https://discord.com/api/v9/users/@me/settings-proto/1";
+        if let Ok(resp) = self.client.get(url).send().await {
+            if resp.status().is_success() {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    let decoded = body["settings"]
+                        .as_str()
+                        .and_then(|s| base64::engine::general_purpose::STANDARD.decode(s).ok());
+                    if let Some(settings) = decoded {
+                        let folders = crate::ui::guild_folders::parse_proto(&settings);
+                        if !folders.is_empty() {
+                            return folders;
+                        }
+                    }
+                }
+            }
+        }
+        self.get_user_settings()
+            .await
+            .map(|settings| crate::ui::guild_folders::parse_json(&settings))
+            .unwrap_or_default()
+    }
+
     pub async fn get_user_dms(&self) -> Result<Vec<serde_json::Value>, String> {
         let url = "https://discord.com/api/v10/users/@me/channels";
         match self.client.get(url).send().await {

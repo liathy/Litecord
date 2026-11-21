@@ -3327,7 +3327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_show_user_menu(false);
             ui.set_show_settings_modal(false);
             ui.set_is_testing_mic(false);
-            ui.set_guilds(std::rc::Rc::new(slint::VecModel::default()).into());
+            crate::ui::guild_folders::clear(&ui);
             ui.set_channels(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_voice_participants(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_saved_accounts(slint::ModelRc::new(slint::VecModel::from(vec![])));
@@ -3423,7 +3423,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_show_user_menu(false);
             ui.set_show_settings_modal(false);
             ui.set_is_testing_mic(false);
-            ui.set_guilds(std::rc::Rc::new(slint::VecModel::default()).into());
+            crate::ui::guild_folders::clear(&ui);
             ui.set_channels(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_voice_participants(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_total_dm_unread_count(0);
@@ -3514,7 +3514,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_show_user_menu(false);
             ui.set_show_settings_modal(false);
             ui.set_is_testing_mic(false);
-            ui.set_guilds(std::rc::Rc::new(slint::VecModel::default()).into());
+            crate::ui::guild_folders::clear(&ui);
             ui.set_channels(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_voice_participants(std::rc::Rc::new(slint::VecModel::default()).into());
             ui.set_total_dm_unread_count(0);
@@ -3972,6 +3972,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let app_weak_folder = app_weak.clone();
+    app.on_toggle_guild_folder(move |folder_id: SharedString| {
+        if let Some(ui) = app_weak_folder.upgrade() {
+            crate::ui::guild_folders::toggle(&ui, &folder_id);
+        }
+    });
+    let app_weak_rail = app_weak.clone();
+    app.on_guild_rail_changed(move || {
+        if let Some(ui) = app_weak_rail.upgrade() {
+            crate::ui::guild_folders::refresh_active(&ui);
+        }
+    });
+
     // Reorder Guild Callback
     let app_weak_reorder_g = app_weak.clone();
     app.on_reorder_guild(move |from_idx: i32, to_idx: i32| {
@@ -3993,7 +4006,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Ok(json) = serde_json::to_string_pretty(&order_ids) {
                     let _ = std::fs::write(".litecord_guild_order.json", json);
                 }
-                ui.set_guilds(std::rc::Rc::new(slint::VecModel::from(list)).into());
+                crate::ui::guild_folders::show(&ui, list);
                 info!("🔄 Servidores reordenados de {} para {} e persistidos em .litecord_guild_order.json", from, to);
             }
         }

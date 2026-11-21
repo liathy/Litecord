@@ -30,13 +30,16 @@ pub struct RawGuildItem {
 pub struct SessionSnapshot {
     pub guilds: Vec<RawGuildItem>,
     pub order: Vec<String>,
+    #[serde(default)]
+    pub folders: Vec<crate::ui::guild_folders::Folder>,
 }
 
-pub fn save_session_snapshot(guilds: &[RawGuildItem], order: &[String]) {
+pub fn save_session_snapshot(guilds: &[RawGuildItem], order: &[String], folders: &[crate::ui::guild_folders::Folder]) {
     let _ = std::fs::create_dir_all(".litecord_cache");
     let snapshot = SessionSnapshot {
         guilds: guilds.to_vec(),
         order: order.to_vec(),
+        folders: folders.to_vec(),
     };
     if let Ok(json) = serde_json::to_string(&snapshot) {
         let tmp = ".litecord_cache/session_state.json.tmp";
@@ -64,6 +67,7 @@ pub async fn fetch_and_populate_guilds(
         if let Ok(snapshot) = serde_json::from_str::<SessionSnapshot>(&data) {
             if !snapshot.guilds.is_empty() {
                 let cached_guilds = snapshot.guilds.clone();
+                let cached_folders = snapshot.folders.clone();
                 let app_w_cache = app_weak.clone();
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = app_w_cache.upgrade() {
@@ -83,10 +87,10 @@ pub async fn fetch_and_populate_guilds(
                                 icon: raw.icon.into(),
                                 has_image,
                                 icon_image,
+                                ..Default::default()
                             }
                         }).collect();
-                        let model = std::rc::Rc::new(slint::VecModel::from(ui_guilds));
-                        ui.set_guilds(model.into());
+                        crate::ui::guild_folders::show_with_folders(&ui, ui_guilds, cached_folders);
                     }
                 });
             }
@@ -145,11 +149,19 @@ pub async fn fetch_and_populate_guilds(
             }
 
             // 📌 Ordenação Nativa do Discord / Persistência Local
-            let mut ordered_ids: Vec<String> = Vec::new();
+            // Folders come from the account and decide the order when it has any.
+            let folders = http.get_guild_folders().await;
+            let mut ordered_ids: Vec<String> = if crate::ui::guild_folders::has_real_folders(&folders) {
+                crate::ui::guild_folders::flattened_ids(&folders)
+            } else {
+                Vec::new()
+            };
+            if ordered_ids.is_empty() {
             if let Ok(data) = std::fs::read_to_string(".litecord_guild_order.json") {
                 if let Ok(ids) = serde_json::from_str::<Vec<String>>(&data) {
                     ordered_ids = ids;
                 }
+            }
             }
             if ordered_ids.is_empty() {
                 if let Ok(settings) = http.get_user_settings().await {
@@ -183,7 +195,7 @@ pub async fn fetch_and_populate_guilds(
             }
 
             // Salva snapshot local atômico para carregamento sub-2ms no próximo boot
-            save_session_snapshot(&raw_guilds, &ordered_ids);
+            save_session_snapshot(&raw_guilds, &ordered_ids, &folders);
 
             let raw_guilds_clone = raw_guilds.clone();
             let app_w = app_weak.clone();
@@ -204,11 +216,11 @@ pub async fn fetch_and_populate_guilds(
                             icon: raw.icon.into(),
                             has_image,
                             icon_image,
+                            ..Default::default()
                         }
                     }).collect();
 
-                    let model = std::rc::Rc::new(slint::VecModel::from(ui_guilds));
-                    ui.set_guilds(model.into());
+                    crate::ui::guild_folders::show_with_folders(&ui, ui_guilds, folders);
                 }
             });
 
@@ -250,17 +262,7 @@ pub async fn fetch_and_populate_guilds(
                                     let gid_target = gid.clone();
                                     let _ = slint::invoke_from_event_loop(move || {
                                         if let Some(ui) = app_w_c.upgrade() {
-                                            let guilds = ui.get_guilds();
-                                            for i in 0..guilds.row_count() {
-                                                if let Some(mut item) = guilds.row_data(i) {
-                                                    if item.id.as_str() == gid_target.as_str() {
-                                                        item.has_image = true;
-                                                        item.icon_image = Image::from_rgba8(buffer);
-                                                        guilds.set_row_data(i, item);
-                                                        break;
-                                                    }
-                                                }
-                                            }
+                                            crate::ui::guild_folders::set_icon(&ui, &gid_target, Image::from_rgba8(buffer));
                                         }
                                     });
                                 }

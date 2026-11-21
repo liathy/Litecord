@@ -51,6 +51,14 @@ struct GuildItem {
     icon: string,
     has_image: bool,
     icon_image: image,
+    // Server folders: a folder is a row of its own, followed by its servers while open.
+    is_folder: bool,
+    folder_id: string,
+    folder_color: color,
+    in_folder: bool,
+    is_expanded: bool,
+    contains_active: bool,
+    previews: [image],
 }
 
 struct VoiceParticipant {
@@ -181,6 +189,10 @@ export component AppWindow inherits Window {
     callback update_app_ignore();
     callback check_for_updates();
     callback reorder_guild(int, int);
+    callback toggle_guild_folder(string);
+    callback guild_rail_changed();
+    // Off when the account has folders: their order comes from Discord.
+    in-out property <bool> guild_drag_enabled: true;
     callback reorder_channel(int, int);
     // Row a channel dragged from row `from` by `dy` would land on (rows differ in height).
     pure callback channel_drop_row(int, length) -> int;
@@ -533,6 +545,7 @@ export component AppWindow inherits Window {
     in-out property <string> active_channel_id: "";
     in-out property <string> active_guild_name: "";
     in-out property <string> active_guild_id: "";
+    changed active_guild_id => { root.guild_rail_changed(); }
     in-out property <bool> is_muted: false;
     in-out property <bool> is_deafened: false;
     in-out property <bool> is_in_voice: false;
@@ -1349,18 +1362,28 @@ export component AppWindow inherits Window {
                                                 x: 0;
                                                 y: (parent.height - self.height) / 2;
                                                 width: 4px;
-                                                height: (guild.id == root.active_guild_id) ? 36px : (guild_ta.has-hover ? 16px : 0px);
+                                                height: (guild.id == root.active_guild_id || (guild.is_folder && !guild.is_expanded && guild.contains_active)) ? 36px : (guild_ta.has-hover ? 16px : 0px);
                                                 background: AppTheme.text-strong;
                                                 border-top-right-radius: 4px;
                                                 border-bottom-right-radius: 4px;
                                                 animate height { duration: 150ms; easing: ease-out; }
+                                            }
+                                            // Line joining the servers of an open folder.
+                                            if guild.in_folder: Rectangle {
+                                                x: 5px;
+                                                y: -5px;
+                                                width: 3px;
+                                                height: 58px;
+                                                background: guild.folder_color;
                                             }
                                         }
 
                                         Rectangle {
                                             height: 48px;
                                             width: 48px;
-                                            background: (guild.id == root.active_guild_id) ? AppTheme.accent : (guild_ta.has-hover ? AppTheme.accent : AppTheme.surface-chat);
+                                            background: guild.is_folder
+                                                ? guild.folder_color.with-alpha(guild.is_expanded ? 0.32 : (guild_ta.has-hover ? 0.28 : 0.18))
+                                                : ((guild.id == root.active_guild_id) ? AppTheme.accent : (guild_ta.has-hover ? AppTheme.accent : AppTheme.surface-chat));
                                             border-radius: (guild.id == root.active_guild_id || guild_ta.has-hover) ? 14px : 16px;
                                             clip: true;
                                             opacity: (root.dragging_guild_idx == idx) ? 0.4 : 1.0;
@@ -1373,7 +1396,28 @@ export component AppWindow inherits Window {
                                                 image-fit: cover;
                                             }
 
-                                            if !guild.has_image: Text {
+                                            if guild.is_folder && (guild.is_expanded || guild.previews.length == 0): Image {
+                                                x: 12px;
+                                                y: 12px;
+                                                width: 24px;
+                                                height: 24px;
+                                                source: @image-url("../assets/folder.svg");
+                                                colorize: guild.folder_color;
+                                                image-fit: contain;
+                                            }
+
+                                            if guild.is_folder && !guild.is_expanded: Rectangle {
+                                                for preview[preview_idx] in guild.previews: Image {
+                                                    x: (5 + 20 * Math.mod(preview_idx, 2)) * 1px;
+                                                    y: (5 + 20 * Math.floor(preview_idx / 2)) * 1px;
+                                                    width: 18px;
+                                                    height: 18px;
+                                                    source: preview;
+                                                    image-fit: cover;
+                                                }
+                                            }
+
+                                            if !guild.has_image && !guild.is_folder: Text {
                                                 text: guild.icon;
                                                 color: AppTheme.text-on-accent;
                                                 font-size: TypeScale.title;
@@ -1397,7 +1441,7 @@ export component AppWindow inherits Window {
                                                 // The pressed icon keeps the pointer while it is dragged (no other icon
                                                 // sees it), so the target comes from how far it moved: 48px icons, 10px apart.
                                                 moved => {
-                                                    if (self.pressed) {
+                                                    if (self.pressed && root.guild_drag_enabled) {
                                                         let diff_y = self.mouse-y - self.pressed-y;
                                                         if (root.dragging_guild_idx < 0 && (diff_y > 10px || diff_y < -10px)) {
                                                             root.dragging_guild_idx = idx;
@@ -1409,8 +1453,12 @@ export component AppWindow inherits Window {
                                                 }
                                                 clicked => {
                                                     if (root.dragging_guild_idx < 0) {
-                                                        root.active_guild_id = guild.id;
-                                                        root.select_guild(guild.id);
+                                                        if (guild.is_folder) {
+                                                            root.toggle_guild_folder(guild.folder_id);
+                                                        } else {
+                                                            root.active_guild_id = guild.id;
+                                                            root.select_guild(guild.id);
+                                                        }
                                                     }
                                                 }
                                             }

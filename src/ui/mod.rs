@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 pub mod dm_close;
+pub mod guild_folders;
 pub mod helpers;
 pub mod data_loader;
 pub mod invite_cards;
