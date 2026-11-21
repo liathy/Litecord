@@ -30,6 +30,34 @@ export struct ChannelItem {
 }
 
 
+component VoicePanelButton inherits Rectangle {
+    in property <image> icon;
+    in property <color> icon-color: AppTheme.text-primary;
+    in property <bool> active: false;
+    callback clicked();
+
+    border-radius: 5px;
+    background: root.active
+        ? AppTheme.accent
+        : (button_ta.pressed ? AppTheme.interactive-selected : (button_ta.has-hover ? AppTheme.interactive-hover : AppTheme.interactive-muted));
+    animate background { duration: 120ms; }
+
+    Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 17px;
+        height: 17px;
+        source: root.icon;
+        colorize: root.active ? AppTheme.text-on-accent : root.icon-color;
+        image-fit: contain;
+    }
+
+    button_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component ChannelSidebar inherits Rectangle {
     in property <string> active_guild_name;
     in property <string> tr_server_channels;
@@ -62,6 +90,8 @@ export component ChannelSidebar inherits Rectangle {
     callback open_stream_modal();
     callback open_camera_modal();
     callback toggle_screen_share();
+    callback open_voice_room();
+    in property <bool> is_voice_focused;
     callback toggle_user_menu();
     callback toggle_mute();
     callback toggle_deafen();
@@ -207,7 +237,7 @@ export component ChannelSidebar inherits Rectangle {
                                     source: @image-url("../../assets/speaker.svg");
                                     width: 14px;
                                     height: 14px;
-                                    colorize: (channel.id == root.active_channel_id) ? AppTheme.accent-soft : AppTheme.accent;
+                                    colorize: (root.is_in_voice && channel.name == root.current_voice_channel) ? AppTheme.success : AppTheme.text-muted;
                                     image-fit: contain;
                                 }
                             }
@@ -467,156 +497,85 @@ export component ChannelSidebar inherits Rectangle {
         }
     }
 
-        // Active Voice Channel Banner
+        // Voice Connected panel: the call stays here while the chat stays on screen.
         if root.is_in_voice: Rectangle {
-            height: 44px;
-            background: root.is_voice_connecting ? AppTheme.warning-strong : AppTheme.accent;
+            height: 88px;
+            background: AppTheme.surface-elevated;
             border-radius: 6px;
 
-            HorizontalLayout {
-                padding-left: 10px;
-                padding-right: 10px;
-                spacing: 8px;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 6px;
 
-                VerticalLayout {
-                    alignment: center;
-                    Image {
-                        source: @image-url("../../assets/speaker.svg");
-                        width: 14px;
-                        height: 14px;
-                        colorize: AppTheme.text-on-accent;
-                        image-fit: contain;
-                    }
-                }
+                HorizontalLayout {
+                    height: 34px;
+                    spacing: 6px;
 
-                VerticalLayout {
-                    alignment: center;
-                    spacing: 1px;
-                    Text {
-                        text: root.is_voice_connecting ? root.tr_voice_connecting : root.tr_voice_connected;
-                        color: AppTheme.text-on-accent;
-                        font-size: TypeScale.caption;
-                        font-weight: 800;
-                        overflow: elide;
-                    }
-                    Text {
-                        text: root.current_voice_channel;
-                        color: AppTheme.text-on-status;
-                        font-size: TypeScale.micro;
-                        font-weight: 500;
-                        overflow: elide;
-                    }
-                }
-
-                Rectangle { horizontal-stretch: 1; }
-
-                // Webcam Button
-                VerticalLayout {
-                    alignment: center;
                     Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 5px;
-                        border-width: 1px;
-                        border-color: btn_webcam_sidebar_ta.has-hover ? #86efac : AppTheme.border-on-accent-muted;
-                        background: btn_webcam_sidebar_ta.pressed ? #16a34a : (btn_webcam_sidebar_ta.has-hover ? #22c55e : AppTheme.surface-translucent);
-                        animate background { duration: 120ms; }
-                        animate border-color { duration: 120ms; }
-
-                        Image {
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                            width: 16px;
-                            height: 16px;
-                            source: @image-url("../../assets/camera.svg");
-                            colorize: AppTheme.text-on-accent;
-                            image-fit: contain;
-                        }
-
-                        btn_webcam_sidebar_ta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { root.open_camera_modal(); }
-                        }
-                    }
-                }
-
-                // Stream / Screen Share Button
-                VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        width: 28px;
-                        height: 28px;
-                        border-radius: 5px;
-                        border-width: 1px;
-                        border-color: btn_stream_sidebar_ta.has-hover ? (root.is_screen_sharing ? #fca5a5 : #fdba74) : AppTheme.border-on-accent-muted;
-                        background: root.is_screen_sharing ? (btn_stream_sidebar_ta.pressed ? AppTheme.danger-pressed : (btn_stream_sidebar_ta.has-hover ? AppTheme.danger-bright : AppTheme.danger-action)) : (btn_stream_sidebar_ta.pressed ? #ea580c : (btn_stream_sidebar_ta.has-hover ? #f97316 : AppTheme.surface-translucent));
-                        animate background { duration: 120ms; }
-                        animate border-color { duration: 120ms; }
-
-                        Image {
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                            width: 16px;
-                            height: 16px;
-                            source: @image-url("../../assets/monitor.svg");
-                            colorize: AppTheme.text-on-accent;
-                            image-fit: contain;
-                        }
-
-                        btn_stream_sidebar_ta := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                if root.is_screen_sharing {
-                                    root.toggle_screen_share();
-                                } else {
-                                    root.open_stream_modal();
-                                }
-                            }
-                        }
-                    }
-                }
-
-                VerticalLayout {
-                    alignment: center;
-                    Rectangle {
-                        height: 28px;
+                        horizontal-stretch: 1;
                         border-radius: 4px;
-                        border-width: 1px;
-                        border-color: btn_leave_sidebar_ta.has-hover ? AppTheme.text-on-accent : AppTheme.border-on-accent-muted;
-                        background: btn_leave_sidebar_ta.pressed ? AppTheme.danger-pressed : (btn_leave_sidebar_ta.has-hover ? AppTheme.danger-bright : AppTheme.surface-translucent);
-                        animate background { duration: 120ms; }
-                        animate border-color { duration: 120ms; }
+                        background: voice_status_ta.has-hover ? AppTheme.interactive-hover : transparent;
 
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 6px;
+                        VerticalLayout {
+                            padding-left: 4px;
+                            padding-right: 4px;
                             alignment: center;
-
-                            VerticalLayout {
-                                alignment: center;
-                                Image {
-                                    source: @image-url("../../assets/log-out.svg");
-                                    width: 13px;
-                                    height: 13px;
-                                    colorize: AppTheme.text-on-accent;
-                                    image-fit: contain;
-                                }
-                            }
-
+                            spacing: 1px;
                             Text {
-                                text: root.tr_leave;
-                                color: AppTheme.text-on-accent;
-                                font-size: TypeScale.caption;
+                                text: root.is_voice_connecting ? root.tr_voice_connecting : root.tr_voice_connected;
+                                color: root.is_voice_connecting ? AppTheme.warning : AppTheme.success;
+                                font-size: TypeScale.small;
                                 font-weight: 700;
-                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: root.current_voice_channel;
+                                color: AppTheme.text-muted;
+                                font-size: TypeScale.micro;
+                                overflow: elide;
                             }
                         }
 
-                        btn_leave_sidebar_ta := TouchArea {
+                        voice_status_ta := TouchArea {
                             mouse-cursor: pointer;
-                            clicked => { root.leave_voice(); }
+                            clicked => { root.open_voice_room(); }
                         }
+                    }
+
+                    VoicePanelButton {
+                        width: 34px;
+                        icon: @image-url("../../assets/phone-slash.svg");
+                        icon-color: AppTheme.danger;
+                        clicked => { root.leave_voice(); }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 32px;
+                    spacing: 6px;
+
+                    VoicePanelButton {
+                        horizontal-stretch: 1;
+                        icon: @image-url("../../assets/camera.svg");
+                        clicked => { root.open_camera_modal(); }
+                    }
+                    VoicePanelButton {
+                        horizontal-stretch: 1;
+                        icon: @image-url("../../assets/monitor.svg");
+                        active: root.is_screen_sharing;
+                        clicked => {
+                            if root.is_screen_sharing {
+                                root.toggle_screen_share();
+                            } else {
+                                root.open_stream_modal();
+                            }
+                        }
+                    }
+                    VoicePanelButton {
+                        horizontal-stretch: 1;
+                        icon: @image-url("../../assets/users.svg");
+                        active: root.is_voice_focused;
+                        clicked => { root.open_voice_room(); }
                     }
                 }
             }

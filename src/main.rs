@@ -2780,7 +2780,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let call_name = ui.get_active_channel_name().to_string();
             ui.set_is_in_voice(true);
             ui.set_is_voice_connecting(true);
-            ui.set_is_voice_focused(true);
             ui.set_is_in_dm_call(true);
             ui.set_current_voice_channel(call_name.into());
             sound_effects::play_ui_sound(sound_effects::UiSound::JoinChannel);
@@ -2891,7 +2890,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_incoming_call_channel_id("".into());
             ui.set_is_in_voice(true);
             ui.set_is_voice_connecting(true);
-            ui.set_is_voice_focused(true);
             ui.set_is_in_dm_call(true);
             ui.set_current_voice_channel(caller.into());
             sound_effects::play_ui_sound(sound_effects::UiSound::JoinChannel);
@@ -4092,7 +4090,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_select_channel(move |channel_id: SharedString| {
         let ch_id = channel_id.to_string();
         info!("Canal selecionado pelo usuário: {}", ch_id);
-        *active_channel_chan_select.lock().unwrap() = ch_id.clone();
 
         let gid = active_guild_chan_select.lock().unwrap().clone();
         let target_channel = guilds_map_chan_select.lock().unwrap()
@@ -4102,11 +4099,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let is_voice = target_channel.as_ref().map(|c| c.is_voice).unwrap_or(false);
         let ch_name = target_channel.as_ref().map(|c| c.name.clone()).unwrap_or_else(|| "canal".to_string());
 
+        // A voice channel is joined, not opened: the text channel on screen stays.
+        let open_text_channel = active_channel_chan_select.lock().unwrap().clone();
+        if !is_voice {
+            *active_channel_chan_select.lock().unwrap() = ch_id.clone();
+        }
+
         if let Some(ui) = app_weak_chan_select.upgrade() {
             if is_voice {
+                ui.set_active_channel_id(open_text_channel.as_str().into());
+                // Clicking the call you are already in shows it.
+                if ui.get_is_in_voice() && gateway::get_my_voice_channel_id().to_string() == ch_id {
+                    ui.set_is_voice_focused(true);
+                    return;
+                }
                 ui.set_is_in_voice(true);
                 ui.set_is_voice_connecting(true);
-                ui.set_is_voice_focused(true);
                 ui.set_current_voice_channel(ch_name.clone().into());
                 sound_effects::play_ui_sound(sound_effects::UiSound::JoinChannel);
                 gateway::sync_voice_channel_participants(&ch_id);
@@ -4139,31 +4147,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mic_name = selected_input_voice.lock().unwrap().clone();
                 *active_mic_stream_voice.lock().unwrap() = Some(start_mic_capture(mic_name, level_tx_voice.clone()));
                 info!("Abrindo o microfone para o canal de voz...");
-                
-                let mut current_msgs: Vec<ChatMessage> = ui.get_messages().iter().collect();
-                current_msgs.push(ChatMessage {
-                    id: "".into(),
-                    author: "Litecord Voice".into(),
-                    content: format!("🔊 Entrou no canal de voz: {}", ch_name).into(),
-                    commands: slint::ModelRc::default(),
-                    content_lines: slint::ModelRc::default(),
-                    embed_content: "".into(),
-                    embed_lines: slint::ModelRc::default(),
-                    embed_color: slint::Color::from_rgb_u8(88, 101, 242),
-                    embed_footer: "".into(),
-                    code_block: "".into(),
-                    reply_author: "".into(),
-                    reply_content: "".into(),
-                    reply_command: "".into(),
-                    links: slint::ModelRc::default(),
-                    buttons: slint::ModelRc::default(),
-                    attachments: slint::ModelRc::default(),
-                    timestamp: crate::utils::i18n_ui::ui_text().now_label.into(),
-                    show_header: true,
-                    ..Default::default()
-                });
-                let model = std::rc::Rc::new(slint::VecModel::from(current_msgs));
-                ui.set_messages(model.into());
             } else {
                 let clean_name = crate::utils::styled_text::plain_display_name(ch_name.trim_start_matches('#').trim());
                 ui.set_active_channel_name(clean_name.as_ref().into());
