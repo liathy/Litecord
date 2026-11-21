@@ -22,6 +22,7 @@ use crate::gateway::get_user_name;
 use crate::screen_capture::types::{
     get_active_stream_frames, mark_stream_started, set_peer_streaming,
 };
+use crate::screen_capture::stream_audio::StreamAudioDecoder;
 use crate::screen_capture::video_pipeline::{decode_video_frame, Decoded, StreamDecoders};
 use crate::screen_capture::watch::set_wanted;
 
@@ -63,6 +64,8 @@ pub struct NativeVideoSession {
     last_frame: HashMap<u64, Instant>,
     last_pli: HashMap<u32, Instant>,
     last_nack: HashMap<u32, Instant>,
+    audio_decoder: Option<StreamAudioDecoder>,
+    audio_seq: Option<u32>,
 }
 
 struct FpsCounter {
@@ -82,6 +85,8 @@ impl Default for NativeVideoSession {
             last_frame: HashMap::new(),
             last_pli: HashMap::new(),
             last_nack: HashMap::new(),
+            audio_decoder: None,
+            audio_seq: None,
         }
     }
 }
@@ -102,7 +107,18 @@ impl NativeVideoSession {
         };
         // Opus is payload type 120 in Discord.  Anything else on this socket is
         // video (or a probe).
-        if header.payload_type == 120 || header.payload_type == 0 {
+        if header.payload_type == 120 {
+            // On a Go Live connection this is the stream's sound.
+            if let Some(owner) = ctx.stream_owner {
+                let key = ctx.secret_key.lock().ok().and_then(|guard| guard.clone());
+                let mode = ctx.mode.lock().map(|guard| TransportMode::from_name(&guard)).unwrap_or(TransportMode::Aes256Gcm);
+                if let Some(payload) = key.and_then(|key| decrypt_payload(&key, mode, datagram, &header)) {
+                    self.play_stream_audio(ctx, owner, header.sequence, &payload);
+                }
+            }
+            return;
+        }
+        if header.payload_type == 0 {
             return;
         }
 
@@ -182,6 +198,23 @@ impl NativeVideoSession {
                 self.handle_frame(ctx, uid, media_ssrc, &frame);
             }
         }
+    }
+
+    fn play_stream_audio(&mut self, ctx: &NativeVideoContext, owner: u64, sequence: u16, payload: &[u8]) {
+        let Some(clear) = decrypt_dave_as(ctx, owner, MediaType::AUDIO, payload) else {
+            return;
+        };
+        if self.audio_decoder.is_none() {
+            self.audio_decoder = StreamAudioDecoder::new();
+        }
+        let Some(decoder) = self.audio_decoder.as_mut() else {
+            return;
+        };
+        let seq = extend_sequence(self.audio_seq, sequence);
+        if self.audio_seq.is_none_or(|last| (seq.wrapping_sub(last) as i32) > 0) {
+            self.audio_seq = Some(seq);
+        }
+        crate::screen_capture::audio_loopback::play_stream_audio(owner, &decoder.decode_stereo(seq, &clear));
     }
 
     fn handle_frame(&mut self, ctx: &NativeVideoContext, uid: u64, ssrc: u32, frame: &[u8]) {
@@ -325,6 +358,8 @@ impl NativeVideoSession {
 
     /// Resets the decoders (e.g. after a DAVE transition).
     pub fn reset(&mut self) {
+        self.audio_decoder = None;
+        self.audio_seq = None;
         self.jitter.clear();
         self.depacketizers.clear();
         self.decoders = StreamDecoders::default();
@@ -350,7 +385,19 @@ fn has_dave_marker(frame: &[u8]) -> bool {
     frame.ends_with(&DAVE_MARKER)
 }
 
+/// RTP counts in 16 bits; the audio decoder needs a count that never wraps.
+fn extend_sequence(last: Option<u32>, sequence: u16) -> u32 {
+    match last {
+        Some(last) => last.wrapping_add(sequence.wrapping_sub(last as u16) as i16 as i32 as u32),
+        None => sequence as u32,
+    }
+}
+
 fn decrypt_dave(ctx: &NativeVideoContext, uid: u64, frame: &[u8]) -> Option<Vec<u8>> {
+    decrypt_dave_as(ctx, uid, MediaType::VIDEO, frame)
+}
+
+fn decrypt_dave_as(ctx: &NativeVideoContext, uid: u64, media: MediaType, frame: &[u8]) -> Option<Vec<u8>> {
     let mut guard = ctx.dave.lock().unwrap_or_else(|e| e.into_inner());
     let Some(session) = guard.as_mut() else {
         // No DAVE group at all: media is plain text.
@@ -366,7 +413,7 @@ fn decrypt_dave(ctx: &NativeVideoContext, uid: u64, frame: &[u8]) -> Option<Vec<
         return Some(frame.to_vec());
     }
 
-    match session.decrypt(uid, MediaType::VIDEO, frame) {
+    match session.decrypt(uid, media, frame) {
         Ok(clear) => Some(clear),
         Err(error) => {
             // During the transition to plaintext, frames are not encrypted.
@@ -405,6 +452,13 @@ mod tests {
         let mut out = vec![0, 0, 0, 1, 0x65, 0x88];
         out.extend_from_slice(tail);
         out
+    }
+
+    #[test]
+    fn audio_sequence_numbers_keep_counting_past_the_16_bit_wrap() {
+        assert_eq!(extend_sequence(None, 65_535), 65_535);
+        assert_eq!(extend_sequence(Some(65_535), 0), 65_536);
+        assert_eq!(extend_sequence(Some(65_536), 65_535), 65_535);
     }
 
     #[test]

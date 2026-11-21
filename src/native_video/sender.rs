@@ -11,6 +11,7 @@ use log::info;
 use tokio::sync::mpsc;
 
 static FRAME_TX: Mutex<Option<mpsc::Sender<Vec<u8>>>> = Mutex::new(None);
+static AUDIO_TX: Mutex<Option<mpsc::Sender<Vec<u8>>>> = Mutex::new(None);
 static IS_BROADCASTING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_STREAM_KEY: Mutex<Option<String>> = Mutex::new(None);
 static PREMIUM_TYPE: AtomicU8 = AtomicU8::new(0);
@@ -66,6 +67,37 @@ pub(super) fn protect_frame<'a>(
     session.encrypt(MediaType::VIDEO, Codec::H264, frame).ok()
 }
 
+/// The same rule for the stream's sound.
+pub(super) fn protect_audio<'a>(
+    dave: &Mutex<Option<DaveSession>>,
+    dave_required: bool,
+    packet: &'a [u8],
+) -> Option<Cow<'a, [u8]>> {
+    if !dave_required {
+        return Some(Cow::Borrowed(packet));
+    }
+    let mut guard = dave.lock().unwrap();
+    let session = guard.as_mut()?;
+    if !session.is_ready() {
+        return None;
+    }
+    session.encrypt(MediaType::AUDIO, Codec::OPUS, packet).ok()
+}
+
+/// Hands one 20 ms Opus packet to the stream. Non-blocking: late audio is dropped.
+pub fn offer_outbound_audio(packet: Vec<u8>) {
+    if let Some(tx) = AUDIO_TX.lock().unwrap().as_ref() {
+        let _ = tx.try_send(packet);
+    }
+}
+
+/// Opens the queue of Opus packets, after `begin_outbound`.
+pub(super) fn begin_outbound_audio() -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(8);
+    *AUDIO_TX.lock().unwrap() = Some(tx);
+    rx
+}
+
 /// Returns true if an outbound Discord stream is actively broadcasting.
 pub fn is_broadcasting() -> bool {
     IS_BROADCASTING.load(Ordering::Relaxed)
@@ -91,6 +123,7 @@ pub fn stop_sender(stream_key: &str) {
         IS_BROADCASTING.store(false, Ordering::SeqCst);
         let mut tx_guard = FRAME_TX.lock().unwrap();
         *tx_guard = None;
+        *AUDIO_TX.lock().unwrap() = None;
         info!("🛑 [GO LIVE TX] Transmissor nativo de stream encerrado: {}", stream_key);
     }
 }

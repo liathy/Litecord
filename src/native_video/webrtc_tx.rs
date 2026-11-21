@@ -14,7 +14,8 @@ use davey::DaveSession;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use str0m::config::Fingerprint;
-use str0m::media::{MediaKind, Mid, Pt};
+use str0m::format::{Codec, FormatParams};
+use str0m::media::{Frequency, MediaKind, Mid, Pt};
 use str0m::net::{Protocol, Receive};
 use str0m::rtp::{Extension, RtpWrite, Ssrc};
 use str0m::{Candidate, Event, IceConnectionState, IceCreds, Input, Output, Rtc, RtcConfig};
@@ -27,7 +28,10 @@ use super::sender::{H264_PAYLOAD_TYPE, H264_RTX_PAYLOAD_TYPE};
 use super::stream::{begin_generation, end_generation, handle_dave_binary, is_current, rejoin_dave, send_text, VoiceSink};
 
 const OPUS_PAYLOAD_TYPE: u8 = 120;
+const AUDIO_MID: &str = "0";
 const VIDEO_MID: &str = "1";
+/// One Opus packet: 20 ms at 48 kHz.
+const OPUS_FRAME_TICKS: u32 = 960;
 const SOCKET_BUFFER: usize = 4 << 20;
 const IDLE_WAKE: Duration = Duration::from_millis(250);
 
@@ -149,6 +153,10 @@ struct GoLiveRtc {
     seq: u64,
     packetizer: H264Packetizer,
     started: Instant,
+    audio_ssrc: Option<Ssrc>,
+    audio_seq: u64,
+    audio_time: u32,
+    audio_last: Option<Instant>,
 }
 
 impl GoLiveRtc {
@@ -163,6 +171,14 @@ impl GoLiveRtc {
         config
             .codec_config()
             .add_h264(H264_PAYLOAD_TYPE.into(), Some(H264_RTX_PAYLOAD_TYPE.into()), true, 0x42e01f);
+        config.codec_config().add_config(
+            OPUS_PAYLOAD_TYPE.into(),
+            None,
+            Codec::Opus,
+            Frequency::FORTY_EIGHT_KHZ,
+            Some(2),
+            FormatParams::default(),
+        );
         let mut rtc = config.build(now);
         let candidate = Candidate::host(local, "udp").map_err(|e| format!("candidate: {e}"))?;
         rtc.add_local_candidate(candidate);
@@ -184,7 +200,38 @@ impl GoLiveRtc {
             seq: rand::random::<u16>() as u64,
             packetizer: H264Packetizer::new(video_ssrc, H264_PAYLOAD_TYPE),
             started: now,
+            audio_ssrc: None,
+            audio_seq: rand::random::<u16>() as u64,
+            audio_time: rand::random::<u32>(),
+            audio_last: None,
         })
+    }
+
+    /// Opens the stream's sound on the SSRC Discord assigned.
+    fn enable_audio(&mut self, ssrc: u32) {
+        let mid: Mid = AUDIO_MID.into();
+        let ssrc: Ssrc = ssrc.into();
+        let mut api = self.rtc.direct_api();
+        api.declare_media(mid, MediaKind::Audio);
+        api.declare_stream_tx(ssrc, None, mid, None);
+        self.audio_ssrc = Some(ssrc);
+    }
+
+    fn write_audio(&mut self, packet: &[u8], now: Instant) {
+        let Some(ssrc) = self.audio_ssrc else { return };
+        // Nothing is sent during silence, but the audio clock keeps running.
+        if let Some(last) = self.audio_last {
+            let gap = now.saturating_duration_since(last);
+            if gap > Duration::from_millis(100) {
+                self.audio_time = self.audio_time.wrapping_add((gap.as_millis() as u32).wrapping_mul(48));
+            }
+        }
+        self.audio_last = Some(now);
+        let mut api = self.rtc.direct_api();
+        let Some(stream) = api.stream_tx(&ssrc) else { return };
+        stream.write_rtp(RtpWrite::new(OPUS_PAYLOAD_TYPE.into(), self.audio_seq.into(), self.audio_time, now, packet.to_vec()).nackable(false));
+        self.audio_seq += 1;
+        self.audio_time = self.audio_time.wrapping_add(OPUS_FRAME_TICKS);
     }
 
     fn offer(&mut self) -> String {
@@ -332,6 +379,7 @@ async fn run(
     let mut media: Option<GoLiveRtc> = None;
     let mut socket: Option<Arc<UdpSocket>> = None;
     let mut frames: Option<mpsc::Receiver<Vec<u8>>> = None;
+    let mut audio_packets: Option<mpsc::Receiver<Vec<u8>>> = None;
     let (mut audio_ssrc, mut video_ssrc, mut rtx_ssrc) = (0u32, 0u32, 0u32);
     let mut buffer = vec![0u8; 2048];
     let mut waiting_for_dave = false;
@@ -352,6 +400,7 @@ async fn run(
                 announce_video(&write, audio_ssrc, video_ssrc, rtx_ssrc).await?;
                 crate::gateway::set_stream_paused(false);
                 frames = Some(super::sender::begin_outbound(stream_key));
+                audio_packets = Some(super::sender::begin_outbound_audio());
             }
         }
 
@@ -407,6 +456,9 @@ async fn run(
                                 let _ = buffers.set_recv_buffer_size(SOCKET_BUFFER / 4);
                                 let local = local_address(udp.local_addr().map_err(|e| format!("UDP: {e}"))?.port());
                                 let mut rtc = GoLiveRtc::new(Instant::now(), local, video_ssrc, rtx_ssrc)?;
+                                if audio_ssrc != 0 {
+                                    rtc.enable_audio(audio_ssrc);
+                                }
                                 let sdp = rtc.offer();
                                 socket = Some(Arc::new(udp));
                                 media = Some(rtc);
@@ -510,6 +562,14 @@ async fn run(
                     None => {}
                 }
             }
+            packet = next_frame(&mut audio_packets) => {
+                let Some(packet) = packet else { audio_packets = None; continue };
+                if let Some(protected) = super::sender::protect_audio(&dave, dave_required.load(Ordering::Relaxed), &packet) {
+                    if let Some(rtc) = media.as_mut() {
+                        rtc.write_audio(&protected, Instant::now());
+                    }
+                }
+            }
             _ = tokio::time::sleep_until(wake.into()) => {
                 if let Some(rtc) = media.as_mut() {
                     rtc.rtc.handle_input(Input::Timeout(Instant::now())).map_err(|e| format!("WebRTC: {e}"))?;
@@ -527,6 +587,7 @@ mod tests {
 
     const VIDEO: u32 = 4242;
     const RTX: u32 = 4243;
+    const AUDIO: u32 = 4244;
 
     fn deliver(to: &mut Rtc, t: &str0m::net::Transmit, now: Instant) {
         let input = Input::Receive(now, Receive {
@@ -564,6 +625,7 @@ mod tests {
             .set_extension(2, Extension::AbsoluteSendTime)
             .set_extension(3, Extension::TransportSequenceNumber);
         config.codec_config().add_h264(H264_PAYLOAD_TYPE.into(), Some(H264_RTX_PAYLOAD_TYPE.into()), true, 0x42e01f);
+        config.codec_config().add_config(OPUS_PAYLOAD_TYPE.into(), None, Codec::Opus, Frequency::FORTY_EIGHT_KHZ, Some(2), FormatParams::default());
         let mut rtc = config.build(now);
         rtc.add_local_candidate(Candidate::host(address, "udp").unwrap());
         rtc.add_remote_candidate(Candidate::host(sender, "udp").unwrap());
@@ -573,6 +635,9 @@ mod tests {
             let mid: Mid = VIDEO_MID.into();
             api.declare_media(mid, MediaKind::Video);
             api.expect_stream_rx(VIDEO.into(), Some(RTX.into()), mid, None);
+            let audio_mid: Mid = AUDIO_MID.into();
+            api.declare_media(audio_mid, MediaKind::Audio);
+            api.expect_stream_rx(AUDIO.into(), None, audio_mid, None);
             let creds = api.local_ice_credentials();
             let fingerprint = api.local_dtls_fingerprint().clone();
             api.set_ice_controlling(false);
@@ -594,6 +659,7 @@ mod tests {
         let sender_at: SocketAddr = "10.0.0.1:5000".parse().unwrap();
         let viewer_at: SocketAddr = "10.0.0.2:6000".parse().unwrap();
         let mut sender = GoLiveRtc::new(now, sender_at, VIDEO, RTX).unwrap();
+        sender.enable_audio(AUDIO);
         let offer = sender.offer();
         let (mut viewer, answer) = peer(now, viewer_at, sender_at, &offer);
         sender.apply_answer(&answer).unwrap();
@@ -616,6 +682,8 @@ mod tests {
         let mut frame = vec![0, 0, 0, 1, 0x67, 0x4D, 0x00, 0x1F, 0, 0, 0, 1, 0x68, 0xEE, 0, 0, 0, 1, 0x65];
         frame.extend((0..6000u32).map(|i| (i % 251 + 2) as u8));
         sender.write_frame(&frame, now);
+        let sound = [0xFC, 1, 2, 3, 4, 5];
+        sender.write_audio(&sound, now);
         viewer_events.clear();
         for _ in 0..200 {
             now += Duration::from_millis(5);
@@ -627,8 +695,14 @@ mod tests {
 
         let mut depacketizer = H264Depacketizer::new();
         let mut received = None;
+        let mut received_sound = None;
         for event in &viewer_events {
             if let Event::RtpPacket(packet) = event {
+                if *packet.header.ssrc == AUDIO {
+                    assert_eq!(*packet.header.payload_type, OPUS_PAYLOAD_TYPE);
+                    received_sound = Some(packet.payload.clone());
+                    continue;
+                }
                 assert_eq!(*packet.header.ssrc, VIDEO);
                 assert_eq!(*packet.header.payload_type, H264_PAYLOAD_TYPE);
                 if let Some(done) = depacketizer.push(&packet.payload, packet.header.marker) {
@@ -637,6 +711,7 @@ mod tests {
             }
         }
         assert_eq!(received.as_deref(), Some(&frame[..]));
+        assert_eq!(received_sound.as_deref(), Some(&sound[..]));
     }
 
     #[test]

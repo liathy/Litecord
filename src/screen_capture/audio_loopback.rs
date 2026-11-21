@@ -63,6 +63,43 @@ pub fn get_stream_volume(uid: u64) -> f32 {
     }
 }
 
+/// Plays 48 kHz audio of a watched stream: through the call's mixer during a call,
+/// otherwise on its own output. Each streamer has a queue, so two streams never interleave.
+pub fn play_stream_audio(uid: u64, samples: &[(i16, i16)]) {
+    let volume = get_stream_volume(uid);
+    if volume <= 0.001 || samples.is_empty() {
+        return;
+    }
+    let scale = |s: i16| s as f32 / 32768.0 * volume;
+    if crate::gateway::is_connected_to_voice() {
+        let queue_id = 0x8000_0000 | (uid as u32 & 0x7FFF_FFFF);
+        if let Ok(mut queues) = crate::gateway::get_speaker_pcm_queues().lock() {
+            let queue = queues.entry(queue_id).or_insert_with(|| VecDeque::with_capacity(9600));
+            if queue.len() > 9600 {
+                let excess = queue.len() - 4800;
+                queue.drain(0..excess);
+                let fade = 32.min(queue.len());
+                for i in 0..fade {
+                    let factor = i as f32 / fade as f32;
+                    let (left, right) = queue[i];
+                    queue[i] = (left * factor, right * factor);
+                }
+            }
+            queue.extend(samples.iter().map(|&(left, right)| (scale(left), scale(right))));
+        }
+        return;
+    }
+    mark_stream_audio_activity();
+    ensure_stream_audio_playback_started();
+    let queue = get_stream_audio_queue();
+    let mut queue = queue.lock().unwrap_or_else(|e| e.into_inner());
+    if queue.len() > 4800 {
+        let excess = queue.len() - 2400;
+        queue.drain(0..excess);
+    }
+    queue.extend(samples.iter().map(|&(left, right)| (scale(left) + scale(right)) * 0.5));
+}
+
 pub fn ensure_stream_audio_playback_started() {
     STREAM_AUDIO_PLAYBACK_INIT.get_or_init(|| {
         std::thread::Builder::new()
@@ -444,6 +481,9 @@ pub fn start_audio_loopback_tx(
             let mut seq: u32 = 0;
             // Opus encoder of the stream audio, alive only while someone watches.
             let mut opus: Option<super::stream_audio::StreamAudioEncoder> = None;
+            // The Discord stream's encoder, idle during silence to save CPU and upload.
+            let mut go_live_opus: Option<super::stream_audio::StreamAudioEncoder> = None;
+            let mut silent_chunks: u32 = 0;
             let pcm_buffer: Arc<Mutex<Vec<i16>>> = Arc::new(Mutex::new(Vec::with_capacity(4800)));
             let pcm_buffer_cb = Arc::clone(&pcm_buffer);
 
@@ -738,6 +778,23 @@ pub fn start_audio_loopback_tx(
                 let stream_key = super::watch::session_key();
                 for chunk in chunks_to_send {
                     super::web_share::offer_audio(&chunk, active_sample_rate);
+                    if crate::native_video::sender::is_broadcasting() {
+                        silent_chunks = if chunk.iter().all(|&s| s == 0) { silent_chunks.saturating_add(1) } else { 0 };
+                        // A few silent frames let viewers' decoders fade out cleanly.
+                        if silent_chunks <= 10 {
+                            if go_live_opus.is_none() {
+                                go_live_opus = super::stream_audio::StreamAudioEncoder::new();
+                            }
+                            if let Some(encoder) = go_live_opus.as_mut() {
+                                for packet in encoder.push(&chunk, active_sample_rate) {
+                                    crate::native_video::sender::offer_outbound_audio(packet);
+                                }
+                            }
+                        }
+                    } else {
+                        go_live_opus = None;
+                        silent_chunks = 0;
+                    }
                     let Some(stream_key) = stream_key.filter(|_| !target_addrs.is_empty()) else {
                         opus = None;
                         continue;

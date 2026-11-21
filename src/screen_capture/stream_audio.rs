@@ -94,6 +94,11 @@ impl StreamAudioDecoder {
 
     /// The 48 kHz samples of packet `seq`, after concealing up to a few lost ones before it.
     pub fn decode(&mut self, seq: u32, packet: &[u8]) -> Vec<i16> {
+        self.decode_stereo(seq, packet).into_iter().map(|(left, _)| left).collect()
+    }
+
+    /// Like `decode`, keeping both channels: Discord streams are real stereo.
+    pub fn decode_stereo(&mut self, seq: u32, packet: &[u8]) -> Vec<(i16, i16)> {
         let mut out = Vec::new();
         if let (Some(last), Some(toc)) = (self.last_seq, self.last_toc) {
             let missing = seq.wrapping_sub(last).wrapping_sub(1);
@@ -124,11 +129,11 @@ impl StreamAudioDecoder {
         out
     }
 
-    fn decode_into(&mut self, packet: &[u8], out: &mut Vec<i16>) {
+    fn decode_into(&mut self, packet: &[u8], out: &mut Vec<(i16, i16)>) {
         let mut pcm = [0f32; FRAME * 2];
         if let Ok(n) = self.decoder.decode(packet, FRAME, &mut pcm) {
-            // Both channels carry the same mix: keep the left one.
-            out.extend(pcm[..n.min(FRAME) * 2].iter().step_by(2).map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16));
+            let sample = |s: f32| (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+            out.extend(pcm[..n.min(FRAME) * 2].chunks_exact(2).map(|pair| (sample(pair[0]), sample(pair[1]))));
         }
     }
 }
