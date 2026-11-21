@@ -1,16 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(ambiguous_glob_reexports, unused_imports)]
 
-pub mod auth;
-pub mod audio;
-pub mod ui;
-pub mod utils;
-pub mod gateway;
-pub mod http;
-pub mod channel_permissions;
-pub mod encoder;
-pub mod screen_capture;
-pub mod native_video;
+pub use litecord::{audio, auth, channel_permissions, encoder, gateway, http, native_video, screen_capture, ui, utils};
 #[cfg(feature = "automation")]
 mod automation;
 
