@@ -65,6 +65,41 @@ pub struct ChannelData {
     pub position: i64,
 }
 
+/// Discord's sidebar order: channels without a category first, then each category with
+/// its channels. Text comes before voice, then position, and the older id breaks a tie.
+pub fn arrange_channels(channels: Vec<ChannelData>) -> Vec<ChannelData> {
+    fn id_number(channel: &ChannelData) -> u64 {
+        channel.id.parse().unwrap_or(u64::MAX)
+    }
+    fn sort_channels(list: &mut [ChannelData]) {
+        list.sort_by_key(|c| (c.is_voice, c.position, id_number(c)));
+    }
+
+    let (mut categories, others): (Vec<_>, Vec<_>) = channels.into_iter().partition(|c| c.is_category);
+    categories.sort_by_key(|c| (c.position, id_number(c)));
+    let known: std::collections::HashSet<String> = categories.iter().map(|c| c.id.clone()).collect();
+    let (children, mut top): (Vec<_>, Vec<_>) = others
+        .into_iter()
+        .partition(|c| c.parent_id.as_ref().is_some_and(|parent| known.contains(parent)));
+    sort_channels(&mut top);
+
+    let mut arranged = top;
+    for category in categories {
+        let mut inside: Vec<ChannelData> = children
+            .iter()
+            .filter(|c| c.parent_id.as_deref() == Some(category.id.as_str()))
+            .cloned()
+            .collect();
+        if inside.is_empty() {
+            continue;
+        }
+        sort_channels(&mut inside);
+        arranged.push(category);
+        arranged.extend(inside);
+    }
+    arranged
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct GuildData {
@@ -739,3 +774,47 @@ pub fn get_user_name(user_id: u64) -> String {
     }
 }
 
+
+#[cfg(test)]
+mod channel_order_tests {
+    use super::*;
+
+    fn channel(id: &str, parent: Option<&str>, position: i64, is_voice: bool, is_category: bool) -> ChannelData {
+        ChannelData { id: id.into(), name: id.into(), is_voice, is_category, parent_id: parent.map(str::to_owned), position }
+    }
+
+    fn ids(channels: Vec<ChannelData>) -> Vec<String> {
+        arrange_channels(channels).into_iter().map(|c| c.id).collect()
+    }
+
+    #[test]
+    fn channels_stay_under_their_categories_in_discord_order() {
+        let list = vec![
+            channel("31", Some("20"), 1, true, false),
+            channel("12", Some("10"), 2, false, false),
+            channel("20", None, 1, false, true),
+            channel("1", None, 0, false, false),
+            channel("11", Some("10"), 1, false, false),
+            channel("10", None, 0, false, true),
+            channel("30", Some("20"), 0, true, false),
+        ];
+        assert_eq!(ids(list), ["1", "10", "11", "12", "20", "30", "31"]);
+    }
+
+    #[test]
+    fn text_comes_before_voice_and_the_older_id_breaks_a_tie() {
+        let list = vec![
+            channel("5", Some("1"), 0, true, false),
+            channel("9", Some("1"), 3, false, false),
+            channel("8", Some("1"), 3, false, false),
+            channel("1", None, 0, false, true),
+        ];
+        assert_eq!(ids(list), ["1", "8", "9", "5"]);
+    }
+
+    #[test]
+    fn empty_categories_are_hidden_and_orphans_stay_visible() {
+        let list = vec![channel("1", None, 0, false, true), channel("2", Some("404"), 0, false, false)];
+        assert_eq!(ids(list), ["2"]);
+    }
+}

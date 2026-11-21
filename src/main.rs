@@ -5242,7 +5242,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         });
                     }
                 }
-                GatewayEvent::GuildLoaded { guild } => {
+                GatewayEvent::GuildLoaded { mut guild } => {
+                    if guild.id != "@me" {
+                        // Gateway lists come in no particular order and without the
+                        // account's permissions: the next visit refreshes this one.
+                        guild.channels = gateway::arrange_channels(guild.channels);
+                        crate::ui::data_loader::mark_guild_stale(&guild.id);
+                    }
                     if let Ok(mut gmap) = guilds_map_inner.lock() {
                         gmap.insert(guild.id.clone(), guild);
                     }

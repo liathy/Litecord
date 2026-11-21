@@ -655,7 +655,7 @@ pub async fn fetch_and_populate_channels(
         }
     }
 
-    raw_cats.sort_by_key(|c| c.position);
+    raw_cats.sort_by_key(|c| (c.position, c.id.parse::<u64>().unwrap_or(u64::MAX)));
 
     let cat_ids: std::collections::HashSet<String> = raw_cats.iter().map(|c| c.id.clone()).collect();
     let mut cat_map: HashMap<String, Vec<RawChan>> = HashMap::new();
@@ -689,7 +689,9 @@ pub async fn fetch_and_populate_channels(
                 let a_is_voice = a.ch_type == 2 || a.ch_type == 13;
                 let b_is_voice = b.ch_type == 2 || b.ch_type == 13;
                 if a_is_voice == b_is_voice {
-                    a.position.cmp(&b.position)
+                    a.position.cmp(&b.position).then_with(|| {
+                        a.id.parse::<u64>().unwrap_or(u64::MAX).cmp(&b.id.parse::<u64>().unwrap_or(u64::MAX))
+                    })
                 } else if !a_is_voice {
                     std::cmp::Ordering::Less
                 } else {
