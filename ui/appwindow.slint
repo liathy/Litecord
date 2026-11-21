@@ -1659,6 +1659,8 @@ export component AppWindow inherits Window {
                 is_voice_focused: root.is_voice_focused;
                 open_voice_room => { root.toggle_voice_focus(); }
                 open_voice_chat => { root.open_voice_chat(); }
+                soundboard_open: root.show_soundboard_panel;
+                toggle_soundboard => { root.toggle_soundboard_panel(); }
                 open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                 is_screen_sharing: root.is_screen_sharing;
                 open_stream_modal => {
@@ -3518,116 +3520,6 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Discord-style Soundboard Panel Box
-                    if root.show_soundboard_panel : Rectangle {
-                        height: 220px;
-                        background: AppTheme.surface-sidebar;
-                        border-top-left-radius: 8px;
-                        border-top-right-radius: 8px;
-                        border-width: 1px;
-                        border-color: AppTheme.border-subtle;
-                        drop-shadow-blur: 10px;
-                        drop-shadow-color: AppTheme.surface-scrim;
-
-                        VerticalLayout {
-                            padding: 10px;
-                            spacing: 8px;
-
-                            HorizontalLayout {
-                                spacing: 8px;
-                                alignment: space-between;
-
-                                HorizontalLayout {
-                                    spacing: 6px;
-                                    Text {
-                                        text: "Painel de Sons";
-                                        color: AppTheme.text-strong;
-                                        font-size: 13px;
-                                        font-weight: 700;
-                                        vertical-alignment: center;
-                                    }
-                                    Rectangle {
-                                        background: AppTheme.surface-control;
-                                        border-radius: 4px;
-                                        height: 18px;
-                                        Text {
-                                            text: "Nitro-Free";
-                                            color: AppTheme.accent;
-                                            font-size: 10px;
-                                            font-weight: 800;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    width: 22px;
-                                    height: 22px;
-                                    border-radius: 11px;
-                                    background: close_sb_ta.has-hover ? AppTheme.interactive-hover : transparent;
-
-                                    Image {
-                                        source: @image-url("../assets/x.svg");
-                                        width: 10px;
-                                        height: 10px;
-                                        colorize: AppTheme.text-muted;
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                    }
-
-                                    close_sb_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.show_soundboard_panel = false; }
-                                    }
-                                }
-                            }
-
-                            // Soundboard 2-row Grid
-                            VerticalLayout {
-                                vertical-stretch: 1;
-                                spacing: 6px;
-
-                                for srow in root.soundboard_rows: HorizontalLayout {
-                                    spacing: 8px;
-                                    for s in srow.sounds: Rectangle {
-                                        horizontal-stretch: 1;
-                                        height: 64px;
-                                        border-radius: 6px;
-                                        background: sb_cell_ta.has-hover ? AppTheme.interactive-selected : AppTheme.surface-elevated;
-                                        border-width: 1px;
-                                        border-color: sb_cell_ta.has-hover ? AppTheme.accent : AppTheme.border-subtle;
-                                        animate background { duration: 120ms; }
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            spacing: 4px;
-
-                                            Text {
-                                                text: s.icon;
-                                                font-size: 20px;
-                                                horizontal-alignment: center;
-                                            }
-
-                                            Text {
-                                                text: s.name;
-                                                color: AppTheme.text-strong;
-                                                font-size: 11px;
-                                                font-weight: 600;
-                                                horizontal-alignment: center;
-                                                overflow: elide;
-                                            }
-                                        }
-
-                                        sb_cell_ta := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => { root.play_soundboard_sound(s.id); }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // Message / Smart Command Input Box
                     Rectangle {
                         height: 56px;
@@ -3832,33 +3724,6 @@ export component AppWindow inherits Window {
                                         } else if ((root.chat_input_text != "" || root.pending_files.length > 0) && !root.file_uploading) {
                                             root.send_message(root.chat_input_text);
                                             root.chat_input_text = "";
-                                            root.show_command_suggestions = false;
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Soundboard trigger button
-                            Rectangle {
-                                width: 34px;
-                                height: 34px;
-                                border-radius: 6px;
-                                background: soundboard_btn_ta.has-hover ? AppTheme.interactive-hover : (root.show_soundboard_panel ? AppTheme.interactive-selected : transparent);
-                                animate background { duration: 120ms; }
-
-                                Text {
-                                    text: "🔊";
-                                    font-size: 16px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                soundboard_btn_ta := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.show_soundboard_panel = !root.show_soundboard_panel;
-                                        if (root.show_soundboard_panel) {
-                                            root.show_emoji_picker = false;
                                             root.show_command_suggestions = false;
                                         }
                                     }
@@ -4073,6 +3938,109 @@ export component AppWindow inherits Window {
         roles: root.profile_roles;
         close => { root.show_profile = false; }
     }
+
+                    // Discord-style Soundboard Panel Box
+                    if root.show_soundboard_panel : Rectangle {
+                        x: 80px;
+                        y: root.height - self.height - 160px;
+                        width: 420px;
+                        height: 220px;
+                        background: AppTheme.surface-elevated;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: AppTheme.border-subtle;
+                        drop-shadow-blur: 10px;
+                        drop-shadow-color: AppTheme.surface-scrim;
+
+                        // Clicks on the panel stay on the panel.
+                        TouchArea {}
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: space-between;
+
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    Text {
+                                        text: "Soundboard";
+                                        color: AppTheme.text-strong;
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    border-radius: 11px;
+                                    background: close_sb_ta.has-hover ? AppTheme.interactive-hover : transparent;
+
+                                    Image {
+                                        source: @image-url("../assets/x.svg");
+                                        width: 10px;
+                                        height: 10px;
+                                        colorize: AppTheme.text-muted;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+
+                                    close_sb_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.show_soundboard_panel = false; }
+                                    }
+                                }
+                            }
+
+                            // Soundboard 2-row Grid
+                            VerticalLayout {
+                                vertical-stretch: 1;
+                                spacing: 6px;
+
+                                for srow in root.soundboard_rows: HorizontalLayout {
+                                    spacing: 8px;
+                                    for s in srow.sounds: Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 64px;
+                                        border-radius: 6px;
+                                        background: sb_cell_ta.has-hover ? AppTheme.interactive-selected : AppTheme.surface-elevated;
+                                        border-width: 1px;
+                                        border-color: sb_cell_ta.has-hover ? AppTheme.accent : AppTheme.border-subtle;
+                                        animate background { duration: 120ms; }
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 4px;
+
+                                            Text {
+                                                text: s.icon;
+                                                font-size: 20px;
+                                                horizontal-alignment: center;
+                                            }
+
+                                            Text {
+                                                text: s.name;
+                                                color: AppTheme.text-strong;
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                horizontal-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+
+                                        sb_cell_ta := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.play_soundboard_sound(s.id); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
     if root.show_user_menu_popup: UserContextMenu {
         x: 0px;

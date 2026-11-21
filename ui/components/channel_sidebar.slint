@@ -93,6 +93,8 @@ export component ChannelSidebar inherits Rectangle {
     callback open_voice_room();
     callback open_user_menu(string, length, length);
     callback open_voice_chat();
+    callback toggle_soundboard();
+    in property <bool> soundboard_open;
     in property <bool> is_voice_focused;
     callback toggle_user_menu();
     callback toggle_mute();
@@ -568,14 +570,9 @@ export component ChannelSidebar inherits Rectangle {
                     }
                     VoicePanelButton {
                         horizontal-stretch: 1;
-                        icon: @image-url("../../assets/users.svg");
-                        active: root.is_voice_focused;
-                        clicked => { root.open_voice_room(); }
-                    }
-                    VoicePanelButton {
-                        horizontal-stretch: 1;
-                        icon: @image-url("../../assets/message-square.svg");
-                        clicked => { root.open_voice_chat(); }
+                        icon: @image-url("../../assets/soundboard.svg");
+                        active: root.soundboard_open;
+                        clicked => { root.toggle_soundboard(); }
                     }
                 }
             }
