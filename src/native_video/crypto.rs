@@ -159,6 +159,59 @@ pub fn protect_rtp(
     Some(out)
 }
 
+/// RTP header extension asking viewers to play with as little delay as possible
+/// (one-byte form, id 5: playout-delay, minimum 0 ms, maximum 100 ms).
+const PLAYOUT_DELAY_PREAMBLE: [u8; 4] = [0xBE, 0xDE, 0x00, 0x01];
+const PLAYOUT_DELAY_ELEMENT: [u8; 4] = [0x52, 0x00, 0x00, 0x0A];
+
+/// Protects an outbound video packet carrying the playout-delay extension. In `rtpsize`
+/// modes the extension's preamble is authenticated and its body is encrypted.
+pub fn protect_video_rtp(
+    key: &[u8],
+    mode: TransportMode,
+    header: &[u8; 12],
+    payload: &[u8],
+    counter: u32,
+) -> Option<Vec<u8>> {
+    if key.len() != 32 {
+        return None;
+    }
+    let mut aad = [0u8; 16];
+    aad[..12].copy_from_slice(header);
+    aad[0] |= 0x10;
+    aad[12..].copy_from_slice(&PLAYOUT_DELAY_PREAMBLE);
+
+    let mut body = Vec::with_capacity(PLAYOUT_DELAY_ELEMENT.len() + payload.len());
+    body.extend_from_slice(&PLAYOUT_DELAY_ELEMENT);
+    body.extend_from_slice(payload);
+
+    let suffix = counter.to_be_bytes();
+    let ciphertext = match mode {
+        TransportMode::Aes256Gcm => {
+            let cipher = Aes256Gcm::new_from_slice(key).ok()?;
+            let mut nonce = [0u8; 12];
+            nonce[0..4].copy_from_slice(&suffix);
+            cipher
+                .encrypt(Nonce::from_slice(&nonce), Payload { msg: &body, aad: &aad })
+                .ok()?
+        }
+        TransportMode::XChaCha20Poly1305 => {
+            let cipher = XChaCha20Poly1305::new_from_slice(key).ok()?;
+            let mut nonce = [0u8; 24];
+            nonce[0..4].copy_from_slice(&suffix);
+            cipher
+                .encrypt(XNonce::from_slice(&nonce), Payload { msg: &body, aad: &aad })
+                .ok()?
+        }
+    };
+
+    let mut out = Vec::with_capacity(aad.len() + ciphertext.len() + suffix.len());
+    out.extend_from_slice(&aad);
+    out.extend_from_slice(&ciphertext);
+    out.extend_from_slice(&suffix);
+    Some(out)
+}
+
 #[derive(Clone, Copy)]
 struct CachedLayout {
     candidate_idx: usize,

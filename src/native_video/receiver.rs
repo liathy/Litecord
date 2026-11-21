@@ -338,6 +338,13 @@ impl NativeVideoSession {
 /// the payload is ciphertext: showing it as plaintext would feed garbage to the
 /// decoder (and could briefly paint noise on screen).
 const DAVE_MARKER: [u8; 2] = [0xFA, 0xFA];
+static DAVE_VIDEO_LOG: crate::utils::logger::LogThrottle = crate::utils::logger::LogThrottle::new(5000);
+
+fn log_undecryptable(uid: u64, reason: &str) {
+    if let Some(count) = DAVE_VIDEO_LOG.hit() {
+        log::warn!("🔐 [DAVE VIDEO] {} quadro(s) de {} sem decifrar: {}", count, uid, reason);
+    }
+}
 
 fn has_dave_marker(frame: &[u8]) -> bool {
     frame.ends_with(&DAVE_MARKER)
@@ -353,6 +360,7 @@ fn decrypt_dave(ctx: &NativeVideoContext, uid: u64, frame: &[u8]) -> Option<Vec<
         // The group is still forming.  Frames marked as encrypted cannot be
         // shown yet; unencrypted ones (the usual transition window) can.
         if has_dave_marker(frame) {
+            log_undecryptable(uid, "grupo ainda não pronto");
             return None;
         }
         return Some(frame.to_vec());
@@ -365,7 +373,7 @@ fn decrypt_dave(ctx: &NativeVideoContext, uid: u64, frame: &[u8]) -> Option<Vec<
             // The DAVE magic tail marks a frame that must not be displayed in
             // clear text.
             if has_dave_marker(frame) {
-                log::trace!("[DAVE VIDEO] Falha ao decifrar vídeo do usuário {}: {:?}", uid, error);
+                log_undecryptable(uid, &format!("{error:?}"));
                 None
             } else {
                 Some(frame.to_vec())

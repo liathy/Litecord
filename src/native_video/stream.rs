@@ -403,16 +403,25 @@ async fn connect_once(
                             }
                         }
                     }
-                    21 | 18 => {
+                    21 => {
                         let transition = value["d"]["transition_id"].as_u64().unwrap_or(0);
-                        send_text(
-                            &write,
-                            json!({ "op": 23, "d": { "transition_id": transition } }),
-                        )
-                        .await?;
+                        if transition != 0 {
+                            send_text(
+                                &write,
+                                json!({ "op": 23, "d": { "transition_id": transition } }),
+                            )
+                            .await?;
+                        }
                     }
-                    22 | 19 => {
+                    22 => {
                         log::info!("🎬 [GO LIVE] DAVE execute transition");
+                    }
+                    24 => {
+                        // The server restarted the group: join the new one.
+                        if value["d"]["epoch"].as_u64() == Some(1) {
+                            let version = value["d"]["protocol_version"].as_u64().unwrap_or(1).max(1) as u16;
+                            rejoin_dave(&dave, &saved_external_sender, user_id, dave_group, version, &write, None).await?;
+                        }
                     }
                     _ => {}
                 }
@@ -526,6 +535,40 @@ fn spawn_video_receiver(
     });
 }
 
+/// Replaces the DAVE session and sends a new key package. With `invalid_transition`,
+/// first tells the server that transition could not be applied, so it re-adds this client.
+async fn rejoin_dave(
+    dave: &Arc<Mutex<Option<DaveSession>>>,
+    external_sender: &Arc<Mutex<Option<Vec<u8>>>>,
+    user_id: u64,
+    group_id: u64,
+    version: u16,
+    write: &Arc<AsyncMutex<VoiceSink>>,
+    invalid_transition: Option<u64>,
+) -> Result<(), String> {
+    let key_package = {
+        let mut guard = dave.lock().unwrap();
+        let mut fresh = DaveSession::new(NonZeroU16::new(version).unwrap_or(NonZeroU16::MIN), user_id, group_id.max(1), None)
+            .map_err(|e| format!("DAVE: {e:?}"))?;
+        if let Some(external) = external_sender.lock().unwrap().as_ref() {
+            let _ = fresh.set_external_sender(external);
+        }
+        let package = fresh.create_key_package().map_err(|e| format!("DAVE: {e:?}"))?;
+        *guard = Some(fresh);
+        package
+    };
+    if let Some(transition) = invalid_transition {
+        log::warn!("🔐 [GO LIVE] Transição DAVE {} inválida: entrando no grupo de novo", transition);
+        send_text(write, json!({ "op": 31, "d": { "transition_id": transition } })).await?;
+    }
+    let mut packet = vec![26u8];
+    packet.extend_from_slice(&key_package);
+    let mut sink = write.lock().await;
+    sink.send(Message::Binary(packet.into()))
+        .await
+        .map_err(|e| format!("send key package: {e}"))
+}
+
 async fn handle_dave_binary(
     data: &[u8],
     dave: &Arc<Mutex<Option<DaveSession>>>,
@@ -618,6 +661,13 @@ async fn handle_dave_binary(
                     json!({ "op": 23, "d": { "transition_id": transition } }),
                 )
                 .await?;
+            } else {
+                let version = dave
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map_or(1, |session| session.protocol_version().get());
+                rejoin_dave(dave, external_sender, user_id, group_id, version, write, Some(transition)).await?;
             }
         }
         _ => {}
@@ -859,9 +909,9 @@ pub async fn connect_stream_sender(
                         let speaking = json!({
                             "op": 5,
                             "d": {
-                                "speaking": 1,
+                                "speaking": 2,
                                 "delay": 0,
-                                "ssrc": video_ssrc
+                                "ssrc": sender_ssrc
                             }
                         });
                         let _ = send_text(&write, speaking).await;
@@ -876,7 +926,7 @@ pub async fn connect_stream_sender(
                                 "rtx_ssrc": rtx_ssrc,
                                 "streams": [
                                     {
-                                        "type": "screen",
+                                        "type": "video",
                                         "rid": "100",
                                         "ssrc": video_ssrc,
                                         "active": true,
@@ -894,16 +944,6 @@ pub async fn connect_stream_sender(
                             }
                         });
                         let _ = send_text(&write, video).await;
-
-                        // Opcode 22 Unpause Video Stream
-                        let unpause = json!({
-                            "op": 22,
-                            "d": {
-                                "video_ssrc": video_ssrc,
-                                "paused": false
-                            }
-                        });
-                        let _ = send_text(&write, unpause).await;
 
                         if let (Some(udp), Some(target_addr)) = (socket.as_ref(), target) {
                             let mode = super::crypto::TransportMode::from_name(&mode_str);

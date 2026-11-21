@@ -15,7 +15,7 @@ use log::{info, warn};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
-use super::crypto::{protect_rtcp, protect_rtp, TransportMode};
+use super::crypto::{protect_rtcp, protect_video_rtp, TransportMode};
 use super::h264::H264Packetizer;
 use super::rtp::is_rtcp;
 
@@ -181,7 +181,7 @@ pub fn start_sender(
                 let cnt = nonce_counter.fetch_add(1, Ordering::Relaxed);
                 total_packets_rtp.fetch_add(1, Ordering::Relaxed);
                 total_octets_rtp.fetch_add(payload.len() as u32, Ordering::Relaxed);
-                if let Some(encrypted) = protect_rtp(&key, mode, &header, &payload, cnt) {
+                if let Some(encrypted) = protect_video_rtp(&key, mode, &header, &payload, cnt) {
                     if let Err(e) = socket_send.send_to(&encrypted, target_addr).await {
                         warn!("⚠️ [GO LIVE TX] Falha ao enviar pacote RTP: {:?}", e);
                         break;
@@ -270,6 +270,27 @@ mod tests {
         assert!(!is_keyframe_request(&packet(0x80, 200)));
         assert!(!is_keyframe_request(&packet(0x81, 201)));
         assert!(!is_keyframe_request(&packet(0x8F, 206)));
+    }
+
+    #[test]
+    fn video_packets_carry_the_playout_delay_extension() {
+        use aes_gcm::aead::{Aead, KeyInit, Payload};
+        use aes_gcm::{Aes256Gcm, Nonce};
+
+        let key = [7u8; 32];
+        let header = [0x80, 103, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3];
+        let packet = protect_video_rtp(&key, TransportMode::Aes256Gcm, &header, &[0x65, 0x88], 9).unwrap();
+        assert_eq!(packet[0], 0x90);
+        assert_eq!(&packet[12..16], &[0xBE, 0xDE, 0, 1]);
+
+        let (sealed, suffix) = packet.split_at(packet.len() - 4);
+        let mut nonce = [0u8; 12];
+        nonce[..4].copy_from_slice(suffix);
+        let opened = Aes256Gcm::new_from_slice(&key)
+            .unwrap()
+            .decrypt(Nonce::from_slice(&nonce), Payload { msg: &sealed[16..], aad: &sealed[..16] })
+            .unwrap();
+        assert_eq!(opened, [0x52, 0, 0, 0x0A, 0x65, 0x88]);
     }
 
     #[test]
