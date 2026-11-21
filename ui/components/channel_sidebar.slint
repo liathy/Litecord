@@ -91,6 +91,7 @@ export component ChannelSidebar inherits Rectangle {
     callback open_camera_modal();
     callback toggle_screen_share();
     callback open_voice_room();
+    callback open_voice_chat();
     in property <bool> is_voice_focused;
     callback toggle_user_menu();
     callback toggle_mute();
@@ -576,6 +577,11 @@ export component ChannelSidebar inherits Rectangle {
                         icon: @image-url("../../assets/users.svg");
                         active: root.is_voice_focused;
                         clicked => { root.open_voice_room(); }
+                    }
+                    VoicePanelButton {
+                        horizontal-stretch: 1;
+                        icon: @image-url("../../assets/message-square.svg");
+                        clicked => { root.open_voice_chat(); }
                     }
                 }
             }

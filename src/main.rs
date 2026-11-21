@@ -540,6 +540,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // The chat of the voice channel the user is in.
+    let app_weak_voice_chat = app_weak.clone();
+    let active_channel_voice_chat = Arc::clone(&active_channel_id);
+    let http_voice_chat = Arc::clone(&http_client);
+    app.on_open_voice_chat(move || {
+        let voice_channel = gateway::get_my_voice_channel_id();
+        let Some(ui) = app_weak_voice_chat.upgrade() else { return };
+        if voice_channel == 0 {
+            return;
+        }
+        let channel_id = voice_channel.to_string();
+        *active_channel_voice_chat.lock().unwrap() = channel_id.clone();
+        ui.set_is_voice_focused(false);
+        ui.set_active_channel_name(ui.get_current_voice_channel());
+        ui.set_active_channel_id(channel_id.as_str().into());
+        request_chat_scroll_to_bottom(app_weak_voice_chat.clone());
+        if let Some(http) = http_voice_chat.lock().unwrap().as_ref().cloned() {
+            let app_w = app_weak_voice_chat.clone();
+            tokio::spawn(async move {
+                load_messages_for_channel(&http, app_w, &channel_id).await;
+            });
+        }
+    });
+
     let app_weak_open_link = app_weak.clone();
     app.on_open_link(move |url_str: SharedString| {
         let url = url_str.trim().to_string();

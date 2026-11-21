@@ -173,6 +173,7 @@ export component AppWindow inherits Window {
     callback set_user_volume(string /* user_id */, float /* volume */);
     callback set_user_priority(string /* user_id */, int /* priority */);
     callback toggle_voice_focus();
+    callback open_voice_chat();
     callback open_link(string /* url */);
     callback download_attachment(string /* att_id */, string /* filename */, string /* url */);
     callback set_vad_threshold(float /* threshold */);
@@ -1533,6 +1534,7 @@ export component AppWindow inherits Window {
                 toggle_user_menu => { root.show_user_menu = !root.show_user_menu; }
                 is_voice_focused: root.is_voice_focused;
                 open_voice_room => { root.toggle_voice_focus(); }
+                open_voice_chat => { root.open_voice_chat(); }
                 is_screen_sharing: root.is_screen_sharing;
                 open_stream_modal => {
                     root.stream_source_tab = "screens";
