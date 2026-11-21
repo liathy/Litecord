@@ -1133,8 +1133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             if ui.get_is_stream_fullscreen() && (cur_act_id == uid_str || uid == 0) {
                                 ui.set_is_stream_fullscreen(false);
-                                let window = ui.window();
-                                let _ = window.with_winit_window(|w| w.set_fullscreen(None));
+                                crate::ui::fullscreen::set(ui.window(), false);
                             }
                             let cur_model = ui.get_voice_participants();
                             for i in 0..cur_model.row_count() {
@@ -1504,16 +1503,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let next = !ui.get_is_stream_fullscreen();
             ui.set_fullscreen_volume_active(false);
             ui.set_is_stream_fullscreen(next);
-            // Ask the window manager for real fullscreen (borderless). The Slint
-            // overlay already covers the app, so a failure here is cosmetic.
-            let window = ui.window();
-            let _ = window.with_winit_window(|w| {
-                w.set_fullscreen(if next {
-                    Some(winit::window::Fullscreen::Borderless(None))
-                } else {
-                    None
-                });
-            });
+            crate::ui::fullscreen::set(ui.window(), next);
         }
     });
 
@@ -2780,8 +2770,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.set_is_voice_focused(false);
             if ui.get_is_stream_fullscreen() {
                 ui.set_is_stream_fullscreen(false);
-                let window = ui.window();
-                let _ = window.with_winit_window(|w| w.set_fullscreen(None));
+                crate::ui::fullscreen::set(ui.window(), false);
             }
             ui.set_current_voice_channel("".into());
             ui.set_is_in_dm_call(false); // também encerra chamada DM se estava ativa
