@@ -256,6 +256,11 @@ fn render(ui: &AppWindow, rail: &Rail) {
     ui.set_guilds(ModelRc::new(VecModel::from(rows)));
 }
 
+/// Every server of the account, including those inside closed folders.
+pub fn all_guilds() -> Vec<GuildItem> {
+    RAIL.with_borrow(|rail| rail.guilds.clone())
+}
+
 /// Shows these servers, keeping the current folders.
 pub fn show(ui: &AppWindow, guilds: Vec<GuildItem>) {
     RAIL.with_borrow_mut(|rail| {

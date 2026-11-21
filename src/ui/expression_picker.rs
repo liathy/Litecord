@@ -152,10 +152,9 @@ fn custom_item(emoji: &emoji_cache::CustomEmojiEntry, active_guild: &str, has_pl
     }
 }
 
-fn guild_names(ui: &AppWindow) -> HashMap<String, (String, Image, bool)> {
-    ui.get_guilds()
+fn guild_names(_ui: &AppWindow) -> HashMap<String, (String, Image, bool)> {
+    crate::ui::guild_folders::all_guilds()
         .iter()
-        .filter(|guild| !guild.is_folder)
         .map(|guild| (guild.id.to_string(), (guild.name.to_string(), guild.icon_image.clone(), guild.has_image)))
         .collect()
 }
@@ -250,6 +249,8 @@ pub fn build_emoji(ui: &AppWindow, query: &str) {
         push_section(&mut rows, group.title, &items);
     }
     ui.set_emoji_rows(ModelRc::new(VecModel::from(rows)));
+    let first_category = rail.iter().find(|item| EMOJI_GROUPS.iter().any(|(id, _, _)| item.id == *id)).map_or(-1, |item| item.row);
+    ui.set_emoji_unicode_row(first_category);
     ui.set_emoji_rail(ModelRc::new(VecModel::from(rail)));
 }
 

@@ -753,6 +753,7 @@ export component AppWindow inherits Window {
     in-out property <bool> sticker_empty: false;
     callback open_stickers();
     in-out property <[PickerRail]> emoji_rail: [];
+    in-out property <int> emoji_unicode_row: -1;
     in-out property <[PickerRail]> sticker_rail: [];
     in-out property <string> sticker_source: "";
     in-out property <string> emoji_preview_name: "";
@@ -4327,12 +4328,25 @@ export component AppWindow inherits Window {
                                     spacing: 10px;
                                     VerticalLayout {
                                         alignment: center;
-                                        Image {
-                                            width: 24px;
-                                            height: 24px;
-                                            source: @image-url("../assets/emoji.svg");
-                                            colorize: AppTheme.text-muted;
-                                            image-fit: contain;
+                                        Rectangle {
+                                            width: 32px;
+                                            height: 32px;
+                                            border-radius: 6px;
+                                            background: emoji_jump_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                            animate background { duration: 90ms; easing: ease-out; }
+                                            Image {
+                                                width: 24px;
+                                                height: 24px;
+                                                source: @image-url("../assets/emoji.svg");
+                                                colorize: emoji_jump_ta.has-hover ? AppTheme.text-strong : AppTheme.text-muted;
+                                                image-fit: contain;
+                                            }
+                                            emoji_jump_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    if (root.emoji_unicode_row >= 0) { emoji_list.viewport-y = -root.emoji_unicode_row * 42px; }
+                                                }
+                                            }
                                         }
                                     }
                                     VerticalLayout {
