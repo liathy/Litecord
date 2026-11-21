@@ -2290,14 +2290,7 @@ pub async fn connect_voice_gateway(
                                             Ok(Some(cw)) => {
                                                 info!("DAVE: CommitWelcome gerado ({} commit bytes, welcome={})",
                                                     cw.commit.len(), cw.welcome.as_ref().map(|w| w.len()).unwrap_or(0));
-                                                let mut out = cw.commit.clone();
-                                                if let Some(w) = cw.welcome {
-                                                    out.push(1u8); // RFC 9420 optional<Welcome> presence flag = 1
-                                                    out.extend_from_slice(&w);
-                                                } else {
-                                                    out.push(0u8); // RFC 9420 optional<Welcome> presence flag = 0
-                                                }
-                                                Some(out)
+                                                Some(commit_welcome_body(&cw.commit, cw.welcome.as_deref()))
                                             }
                                             Ok(None) => { info!("DAVE: process_proposals OK sem commit"); None }
                                             Err(e) => { warn!("DAVE: Falha ao processar proposals: {:?}", e); None }
@@ -2437,6 +2430,18 @@ pub async fn connect_voice_gateway(
         }
     }
 }
+}
+
+/// Body of DAVE opcode 28, as libdave writes it: the commit, then the welcome if there is
+/// one, with nothing between or after them. Any extra byte corrupts the welcome, and whoever
+/// receives it cannot decrypt the call or the stream.
+pub(crate) fn commit_welcome_body(commit: &[u8], welcome: Option<&[u8]>) -> Vec<u8> {
+    let mut body = Vec::with_capacity(commit.len() + welcome.map_or(0, <[u8]>::len));
+    body.extend_from_slice(commit);
+    if let Some(welcome) = welcome {
+        body.extend_from_slice(welcome);
+    }
+    body
 }
 
 /// Moves to a new connection id, unless the user already left or changed channel.
@@ -2832,6 +2837,12 @@ mod voice_seq_tests {
         assert_eq!(samples[0], (0.0, 0.0));
         assert!(samples[48].0 > 0.4 && samples[48].0 < 0.6);
         assert_eq!(samples[96], (1.0, -1.0));
+    }
+
+    #[test]
+    fn commit_and_welcome_are_sent_with_nothing_between_them() {
+        assert_eq!(commit_welcome_body(&[1, 2], Some(&[3, 4])), [1, 2, 3, 4]);
+        assert_eq!(commit_welcome_body(&[1, 2], None), [1, 2]);
     }
 
     #[test]

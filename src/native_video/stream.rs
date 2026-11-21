@@ -623,13 +623,7 @@ async fn handle_dave_binary(
             };
             if let Some(commit) = commit {
                 let mut packet = vec![28u8];
-                packet.extend_from_slice(&commit.commit);
-                if let Some(welcome) = commit.welcome {
-                    packet.push(1);
-                    packet.extend_from_slice(&welcome);
-                } else {
-                    packet.push(0);
-                }
+                packet.extend(crate::gateway::voice::commit_welcome_body(&commit.commit, commit.welcome.as_deref()));
                 let mut sink = write.lock().await;
                 sink.send(Message::Binary(packet.into()))
                     .await
