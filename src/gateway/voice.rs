@@ -178,7 +178,7 @@ pub async fn connect_voice_gateway(
     };
     info!("Conectando à Discord Voice Gateway: {}...", voice_url);
 
-    let my_session_id = CURRENT_VOICE_SESSION_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    let mut my_session_id = CURRENT_VOICE_SESSION_ID.fetch_add(1, Ordering::SeqCst) + 1;
     info!("Iniciando nova sessão de voz ID={}", my_session_id);
     let cid_num: u64 = channel_id.parse().unwrap_or(0);
     set_my_voice_channel_id(cid_num);
@@ -192,6 +192,13 @@ pub async fn connect_voice_gateway(
         }
 
         if !is_first_connect {
+            // Every connection owns its sender, receiver and speaker tasks, which run until
+            // the id changes. Without a new id they would keep running beside the next
+            // connection's, splitting the same audio between them (robotic voice).
+            match next_voice_connection_id(&CURRENT_VOICE_SESSION_ID, my_session_id) {
+                Some(next) => my_session_id = next,
+                None => break,
+            }
             tokio::time::sleep(Duration::from_millis(1500)).await;
             if CURRENT_VOICE_SESSION_ID.load(Ordering::SeqCst) != my_session_id {
                 break;
@@ -945,8 +952,20 @@ pub async fn connect_voice_gateway(
                                                                                 ssrc_expected_seq.insert(ssrc_recv, rtp_seq.wrapping_add(1));
                                                                             } else {
                                                                                 if let Some(last_seq) = ssrc_expected_seq.get(&ssrc_recv).copied() {
-                                                                                    let missed = rtp_seq.wrapping_sub(last_seq);
-                                                                                    if missed > 0 && missed <= 4 {
+                                                                                    let arrival = classify_voice_seq(last_seq, rtp_seq);
+                                                                                    if arrival == VoiceSeq::Late {
+                                                                                        // Its place was already played: playing it now would
+                                                                                        // repeat old speech and invent another frame after it.
+                                                                                        if let Some(n) = VOICE_LATE_LOG.hit() {
+                                                                                            warn!("📊 [VOICE RX] {} pacote(s) atrasado(s) descartado(s)", n);
+                                                                                        }
+                                                                                        ssrc_last_pkt_time.insert(ssrc_recv, now);
+                                                                                        continue;
+                                                                                    }
+                                                                                    if let VoiceSeq::Gap(missed) = arrival {
+                                                                                        if let Some(n) = VOICE_GAP_LOG.hit() {
+                                                                                            warn!("📊 [VOICE RX] {} falha(s) de sequência (pacotes perdidos ou fora de ordem)", n);
+                                                                                        }
                                                                                         let mut plc_buf = [0.0f32; 1920];
                                                                                         for _ in 0..missed {
                                                                                             if let Ok(samples) = dec.decode(&[], 960, &mut plc_buf[..]) {
@@ -2022,10 +2041,10 @@ pub async fn connect_voice_gateway(
                                          }
                                      }
                                  }
-                                 6 => {
-                                     // Voice Opcode 6: Heartbeat ACK!
+                                 3 | 6 => {
+                                     // Heartbeat answer: this gateway version echoes op 3, others send op 6.
                                      voice_hb_acked.store(true, Ordering::SeqCst);
-                                     info!("Voice Gateway Heartbeat ACK (Opcode 6) recebido!");
+                                     info!("Voice Gateway Heartbeat ACK (op={}) recebido!", op);
                                  }
                                  11 => {
                                     // Voice Opcode 11: Clients Connect (user ids only).
@@ -2411,6 +2430,40 @@ pub async fn connect_voice_gateway(
 }
 }
 
+/// Moves to a new connection id, unless the user already left or changed channel.
+fn next_voice_connection_id(current: &std::sync::atomic::AtomicU64, mine: u64) -> Option<u64> {
+    let next = mine + 1;
+    current
+        .compare_exchange(mine, next, Ordering::SeqCst, Ordering::SeqCst)
+        .ok()
+        .map(|_| next)
+}
+
+/// How a voice packet relates to the one expected next from that speaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VoiceSeq {
+    InOrder,
+    /// This many packets are missing before it (short enough to conceal).
+    Gap(u16),
+    /// Older than the one expected: its turn has passed.
+    Late,
+}
+
+const VOICE_MAX_CONCEALED: i16 = 4;
+const VOICE_MAX_LATE: i16 = 32;
+static VOICE_LATE_LOG: crate::utils::logger::LogThrottle = crate::utils::logger::LogThrottle::new(5000);
+static VOICE_GAP_LOG: crate::utils::logger::LogThrottle = crate::utils::logger::LogThrottle::new(5000);
+
+/// Sequence numbers wrap at 65536, so the distance is read as signed. A jump too large
+/// to be a loss or a late packet is a new position in the stream.
+fn classify_voice_seq(expected: u16, seq: u16) -> VoiceSeq {
+    match seq.wrapping_sub(expected) as i16 {
+        d if (1..=VOICE_MAX_CONCEALED).contains(&d) => VoiceSeq::Gap(d as u16),
+        d if (-VOICE_MAX_LATE..0).contains(&d) => VoiceSeq::Late,
+        _ => VoiceSeq::InOrder,
+    }
+}
+
 /// Voice gateway close codes after which the same session must not reconnect: failed
 /// authentication, invalid session, disconnected (kicked, channel deleted, server
 /// changed), DAVE required, call terminated, disconnected by moderation.
@@ -2747,6 +2800,47 @@ const OUTPUT_STALL_AFTER_ERROR: std::time::Duration = std::time::Duration::from_
 /// Wait before looking for an output device again: 0.5 s, doubling up to 5 s.
 fn next_no_device_wait(previous: Option<Duration>) -> Duration {
     previous.map_or(Duration::from_millis(500), |d| (d * 2).min(Duration::from_secs(5)))
+}
+
+#[cfg(test)]
+mod voice_seq_tests {
+    use super::*;
+
+    #[test]
+    fn a_swapped_pair_conceals_once_and_drops_the_late_packet() {
+        // Arrival order 10, 12, 11, 13: the expected number must not go backwards.
+        let mut expected = 11u16;
+        assert_eq!(classify_voice_seq(expected, 12), VoiceSeq::Gap(1));
+        expected = 13;
+        assert_eq!(classify_voice_seq(expected, 11), VoiceSeq::Late);
+        assert_eq!(classify_voice_seq(expected, 13), VoiceSeq::InOrder);
+    }
+
+    #[test]
+    fn a_reconnect_retires_the_previous_connection() {
+        let current = std::sync::atomic::AtomicU64::new(7);
+        assert_eq!(next_voice_connection_id(&current, 7), Some(8));
+        assert_ne!(current.load(Ordering::SeqCst), 7);
+    }
+
+    #[test]
+    fn a_reconnect_never_overrides_a_channel_change() {
+        let current = std::sync::atomic::AtomicU64::new(9);
+        assert_eq!(next_voice_connection_id(&current, 7), None);
+        assert_eq!(current.load(Ordering::SeqCst), 9);
+    }
+
+    #[test]
+    fn sequence_numbers_wrap() {
+        assert_eq!(classify_voice_seq(65535, 0), VoiceSeq::Gap(1));
+        assert_eq!(classify_voice_seq(1, 65535), VoiceSeq::Late);
+    }
+
+    #[test]
+    fn a_large_jump_resynchronizes_without_inventing_audio() {
+        assert_eq!(classify_voice_seq(100, 200), VoiceSeq::InOrder);
+        assert_eq!(classify_voice_seq(1000, 100), VoiceSeq::InOrder);
+    }
 }
 
 #[cfg(test)]
