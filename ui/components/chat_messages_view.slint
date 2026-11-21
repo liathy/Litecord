@@ -426,7 +426,7 @@ export component ChatMessagesView inherits Rectangle {
                             }
 
                             // Case 1: Pure single text line -> Native responsive word-wrap!
-                            if line.blocks.length == 1 && !line.blocks[0].is_link && !line.blocks[0].is_command: Text {
+                            if line.blocks.length == 1 && !line.blocks[0].is_link && !line.blocks[0].is_command && !line.blocks[0].is_emoji: Text {
                                 text: line.blocks[0].text;
                                 color: AppTheme.text-primary;
                                 font-family: ChatTypography.family;
@@ -673,7 +673,7 @@ export component ChatMessagesView inherits Rectangle {
                                             height: 4px;
                                         }
 
-                                        if line.blocks.length == 1 && !line.blocks[0].is_link && !line.blocks[0].is_command: Text {
+                                        if line.blocks.length == 1 && !line.blocks[0].is_link && !line.blocks[0].is_command && !line.blocks[0].is_emoji: Text {
                                             text: line.blocks[0].text;
                                             color: AppTheme.text-embed;
                                             font-family: ChatTypography.family;
