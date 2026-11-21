@@ -93,6 +93,7 @@ struct VoiceParticipant {
     audio_level: float,
     is_muted: bool,
     volume: float,
+    stream_volume: float,
     priority: int,
     is_self: bool,
     is_streaming: bool,
@@ -2001,10 +2002,10 @@ export component AppWindow inherits Window {
                                                                 VerticalLayout {
                                                                     alignment: center;
                                                                     Image {
-                                                                        source: root.stream_remote_volume <= 0.01 ? @image-url("../assets/volume-x.svg") : @image-url("../assets/speaker.svg");
+                                                                        source: p.stream_volume <= 0.01 ? @image-url("../assets/volume-x.svg") : @image-url("../assets/speaker.svg");
                                                                         width: 12px;
                                                                         height: 12px;
-                                                                        colorize: root.stream_remote_volume <= 0.01 ? AppTheme.danger : AppTheme.text-muted;
+                                                                        colorize: p.stream_volume <= 0.01 ? AppTheme.danger : AppTheme.text-muted;
                                                                         image-fit: contain;
                                                                     }
                                                                 }
@@ -2021,9 +2022,9 @@ export component AppWindow inherits Window {
                                                                         Rectangle {
                                                                             x: 0;
                                                                             y: 0;
-                                                                            width: parent.width * (root.stream_remote_volume.clamp(0.0, 1.0));
+                                                                            width: parent.width * (p.stream_volume.clamp(0.0, 1.0));
                                                                             height: 100%;
-                                                                            background: root.stream_remote_volume <= 0.01 ? AppTheme.danger : AppTheme.accent;
+                                                                            background: p.stream_volume <= 0.01 ? AppTheme.danger : AppTheme.accent;
                                                                             border-radius: 2.5px;
                                                                         }
 
@@ -2031,13 +2032,11 @@ export component AppWindow inherits Window {
                                                                             mouse-cursor: pointer;
                                                                             clicked => {
                                                                                 let new_vol = (self.mouse-x / parent.width).clamp(0.0, 1.0);
-                                                                                root.stream_remote_volume = new_vol;
                                                                                 root.set_stream_volume(p.user_id, new_vol);
                                                                             }
                                                                             moved => {
                                                                                 if self.pressed {
                                                                                     let new_vol = (self.mouse-x / parent.width).clamp(0.0, 1.0);
-                                                                                    root.stream_remote_volume = new_vol;
                                                                                     root.set_stream_volume(p.user_id, new_vol);
                                                                                 }
                                                                             }
@@ -2048,7 +2047,7 @@ export component AppWindow inherits Window {
                                                                 VerticalLayout {
                                                                     alignment: center;
                                                                     Text {
-                                                                        text: "\{Math.round(root.stream_remote_volume * 100)}%";
+                                                                        text: "Stream \{Math.round(p.stream_volume * 100)}%";
                                                                         color: AppTheme.text-muted;
                                                                         font-size: TypeScale.micro;
                                                                         font-weight: 700;

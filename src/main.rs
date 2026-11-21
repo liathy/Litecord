@@ -662,6 +662,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let cur_frame = if is_pop_self { ui.get_active_stream_frame() } else { ui.get_remote_stream_frame() };
             if let Some(pop_win) = pop_w_cb.upgrade() {
                 pop_win.set_user_id(uid.clone().into());
+                pop_win.set_stream_volume(screen_capture::audio_loopback::get_stream_volume(uid.parse().unwrap_or(0)));
                 pop_win.set_username(if uname.is_empty() { ui.get_active_stream_user() } else { uname.into() });
                 pop_win.set_stream_frame(cur_frame);
                 pop_win.set_show_controls(true);
@@ -934,10 +935,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
+        let app_weak_pop_volume = app_weak.clone();
         pop_win.on_stream_volume_changed(move |uid_str: slint::SharedString, vol: f32| {
             let uid = uid_str.to_string().parse::<u64>().unwrap_or(0);
             if uid != 0 {
                 screen_capture::set_stream_volume(uid, vol);
+            }
+            if let Some(ui) = app_weak_pop_volume.upgrade() {
+                crate::ui::voice_flags::show_stream_volume(&ui, uid_str.as_str(), vol);
             }
         });
     }
@@ -1664,7 +1669,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             screen_capture::set_stream_volume(uid, vol);
         }
         if let Some(ui) = app_weak_stream_vol.upgrade() {
-            ui.set_stream_remote_volume(vol);
+            crate::ui::voice_flags::show_stream_volume(&ui, uid_str.as_str(), vol);
         }
     });
 
@@ -1943,6 +1948,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         audio_level: final_audio_level,
                         is_muted: final_is_muted,
                         volume: vol,
+                        stream_volume: screen_capture::audio_loopback::get_stream_volume(user_id),
                         priority: prio,
                         is_self,
                         is_streaming: is_streaming_peer,
@@ -4269,8 +4275,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.on_toggle_mute(move || {
         if let Some(ui) = app_weak_mute.upgrade() {
-            let new_muted = !ui.get_is_muted();
+            let (new_muted, new_deafened) = crate::ui::voice_flags::toggle_mute(ui.get_is_muted(), ui.get_is_deafened());
             ui.set_is_muted(new_muted);
+            ui.set_is_deafened(new_deafened);
+            gateway::set_self_deaf(new_deafened);
             sound_effects::play_ui_sound(if new_muted {
                 sound_effects::UiSound::Mute
             } else {
@@ -4306,7 +4314,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.on_toggle_deafen(move || {
         if let Some(ui) = app_weak_deafen.upgrade() {
-            let new_deafened = !ui.get_is_deafened();
+            let (muted_now, new_deafened) = crate::ui::voice_flags::toggle_deafen(ui.get_is_muted(), ui.get_is_deafened());
+            ui.set_is_muted(muted_now);
             ui.set_is_deafened(new_deafened);
             gateway::set_self_deaf(new_deafened);
             sound_effects::play_ui_sound(if new_deafened {
@@ -4352,8 +4361,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let agid = Arc::clone(&active_guild_kb_mute);
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = app_w.upgrade() {
-                    let new_muted = !ui.get_is_muted();
+                    let (new_muted, new_deafened) = crate::ui::voice_flags::toggle_mute(ui.get_is_muted(), ui.get_is_deafened());
                     ui.set_is_muted(new_muted);
+                    ui.set_is_deafened(new_deafened);
+                    gateway::set_self_deaf(new_deafened);
                     sound_effects::play_ui_sound(if new_muted {
                         sound_effects::UiSound::Mute
                     } else {
@@ -4385,7 +4396,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let agid = Arc::clone(&active_guild_kb_deaf);
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = app_w.upgrade() {
-                    let new_deafened = !ui.get_is_deafened();
+                    let (muted_now, new_deafened) = crate::ui::voice_flags::toggle_deafen(ui.get_is_muted(), ui.get_is_deafened());
+                    ui.set_is_muted(muted_now);
                     ui.set_is_deafened(new_deafened);
                     gateway::set_self_deaf(new_deafened);
                     sound_effects::play_ui_sound(if new_deafened {
