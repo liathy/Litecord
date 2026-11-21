@@ -551,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_open_gif_picker(move || {
         if let Some(ui) = app_weak_gif_open.upgrade() {
             let http = http_gif_open.lock().unwrap().as_ref().cloned();
-            crate::ui::gif_picker::load(&ui, http, "");
+            crate::ui::gif_picker::open(&ui, http);
         }
     });
     let app_weak_gif_search = app_weak.clone();
@@ -559,7 +559,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_search_gifs(move |query: SharedString| {
         if let Some(ui) = app_weak_gif_search.upgrade() {
             let http = http_gif_search.lock().unwrap().as_ref().cloned();
-            crate::ui::gif_picker::load(&ui, http, &query);
+            crate::ui::gif_picker::search(&ui, http, &query);
         }
     });
 

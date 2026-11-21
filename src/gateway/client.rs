@@ -402,6 +402,10 @@ struct StrictReadyEmoji<'a> {
     name: std::borrow::Cow<'a, str>,
     #[serde(default)]
     animated: Option<bool>,
+    #[serde(default)]
+    available: Option<bool>,
+    #[serde(default, borrow)]
+    roles: Vec<std::borrow::Cow<'a, str>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1102,7 +1106,8 @@ impl GatewayClient {
             // Emojis
             for em in g.emojis {
                 let anim = em.animated.unwrap_or(false);
-                crate::utils::emoji_cache::register_custom_emoji(&em.id, &em.name, anim);
+                let available = em.available.unwrap_or(true) && em.roles.is_empty();
+                crate::utils::emoji_cache::register_custom_emoji(&g.id, &em.id, &em.name, anim, available);
             }
 
             // Voice states
@@ -1237,12 +1242,14 @@ impl GatewayClient {
                     // Parse initial voice states and custom emojis in READY payload
                     if let Some(guilds_arr) = v["d"]["guilds"].as_array() {
                         for g in guilds_arr {
-                            // Extract server emojis for FakeNitro picker
+                            // Server emojis for the picker
                             if let Some(em_arr) = g["emojis"].as_array() {
                                 for em in em_arr {
                                     if let (Some(id), Some(name)) = (em["id"].as_str(), em["name"].as_str()) {
                                         let anim = em["animated"].as_bool().unwrap_or(false);
-                                        crate::utils::emoji_cache::register_custom_emoji(id, name, anim);
+                                        let available = em["available"].as_bool().unwrap_or(true)
+                                            && em["roles"].as_array().map_or(true, |roles| roles.is_empty());
+                                        crate::utils::emoji_cache::register_custom_emoji(g["id"].as_str().unwrap_or(""), id, name, anim, available);
                                     }
                                 }
                             }

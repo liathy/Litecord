@@ -61,7 +61,7 @@ pub fn parse_json(settings: &serde_json::Value) -> Vec<Folder> {
         .collect()
 }
 
-enum Field<'a> {
+pub(crate) enum Field<'a> {
     Varint(u64),
     Fixed64(u64),
     Bytes(&'a [u8]),
@@ -82,7 +82,7 @@ fn read_varint(buf: &[u8], at: &mut usize) -> Option<u64> {
 }
 
 /// The fields of a protobuf message; `None` when it is malformed.
-fn read_fields(buf: &[u8]) -> Option<Vec<(u64, Field<'_>)>> {
+pub(crate) fn read_fields(buf: &[u8]) -> Option<Vec<(u64, Field<'_>)>> {
     let mut fields = Vec::new();
     let mut at = 0;
     while at < buf.len() {

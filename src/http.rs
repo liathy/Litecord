@@ -129,6 +129,20 @@ impl DiscordHttpClient {
             .unwrap_or_default()
     }
 
+    /// The GIFs the account favorited (its frecency settings).
+    pub async fn get_favorite_gifs(&self) -> Result<Vec<crate::ui::gif_picker::Gif>, String> {
+        use base64::Engine;
+        let url = "https://discord.com/api/v9/users/@me/settings-proto/2";
+        let resp = self.client.get(url).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Status HTTP {}", resp.status()));
+        }
+        let body: serde_json::Value = resp.json().await.map_err(|e| format!("JSON: {:?}", e))?;
+        let settings = body["settings"].as_str().unwrap_or("");
+        let bytes = base64::engine::general_purpose::STANDARD.decode(settings).map_err(|e| format!("base64: {e}"))?;
+        Ok(crate::ui::gif_picker::parse_favorite_gifs(&bytes))
+    }
+
     /// Discord's GIF results: trending for an empty query, a search otherwise.
     pub async fn get_gifs(&self, query: &str) -> Result<serde_json::Value, String> {
         let mut params = vec![("media_format", "gif"), ("provider", "tenor"), ("locale", "en-US"), ("limit", "40")];

@@ -21,6 +21,9 @@ const MAX_PREVIEW_BYTES: usize = 6 * 1024 * 1024;
 const MAX_PREVIEW_SIDE: u32 = 2048;
 const PREVIEW_WIDTH: u32 = 192;
 const PREVIEW_HEIGHT: u32 = 144;
+const FREQUENCY_FAVORITE_GIFS: u64 = 2;
+const EMOJIS_PER_ROW: usize = 12;
+const MAX_SERVER_EMOJIS: usize = 120;
 
 static REQUEST: AtomicU64 = AtomicU64::new(0);
 
@@ -52,6 +55,69 @@ pub fn parse_gifs(body: &Value) -> Vec<Gif> {
         })
         .take(MAX_GIFS)
         .collect()
+}
+
+/// A still image for a favorite. Tenor stores favorites as video; its small GIF rendition
+/// has the same id with another suffix.
+fn still_url(src: &str) -> String {
+    if src.starts_with("https://media.tenor.com/") && src.ends_with(".mp4") {
+        return src.replace("AAAPo/", "AAAAM/").replacen(".mp4", ".gif", 1);
+    }
+    src.to_owned()
+}
+
+/// Favorites in `FrecencyUserSettings`, most recently added first.
+pub fn parse_favorite_gifs(settings: &[u8]) -> Vec<Gif> {
+    use crate::ui::guild_folders::{read_fields, Field};
+    let mut found: Vec<(u64, Gif)> = Vec::new();
+    for (number, field) in read_fields(settings).unwrap_or_default() {
+        let (FREQUENCY_FAVORITE_GIFS, Field::Bytes(section)) = (number, field) else { continue };
+        for (inner, entry) in read_fields(section).unwrap_or_default() {
+            let (1, Field::Bytes(entry)) = (inner, entry) else { continue };
+            let (mut url, mut src, mut order) = (String::new(), String::new(), 0u64);
+            for (key, value) in read_fields(entry).unwrap_or_default() {
+                match (key, value) {
+                    (1, Field::Bytes(text)) => url = String::from_utf8_lossy(text).into_owned(),
+                    (2, Field::Bytes(gif)) => {
+                        for (gif_key, gif_value) in read_fields(gif).unwrap_or_default() {
+                            match (gif_key, gif_value) {
+                                (2, Field::Bytes(text)) => src = String::from_utf8_lossy(text).into_owned(),
+                                (5, Field::Varint(n)) => order = n,
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if url.starts_with("https://") && src.starts_with("https://") {
+                found.push((order, Gif { url, title: String::new(), preview: still_url(&src) }));
+            }
+        }
+    }
+    found.sort_by_key(|(order, _)| std::cmp::Reverse(*order));
+    found.into_iter().map(|(_, gif)| gif).take(MAX_GIFS).collect()
+}
+
+/// Custom emojis the account can send here: the open server's, or any server's with a
+/// plan that includes them. Animated ones need a plan too.
+fn sendable_emojis(
+    emojis: Vec<emoji_cache::CustomEmojiEntry>,
+    guild_id: &str,
+    premium_type: u8,
+) -> Vec<emoji_cache::CustomEmojiEntry> {
+    let has_plan = premium_type != 0;
+    let mut usable: Vec<_> = emojis
+        .into_iter()
+        .filter(|e| e.available && (has_plan || (e.guild_id == guild_id && !e.animated)))
+        .collect();
+    usable.sort_by_key(|e| e.guild_id != guild_id);
+    usable.truncate(MAX_SERVER_EMOJIS);
+    usable
+}
+
+fn emoji_code(emoji: &emoji_cache::CustomEmojiEntry) -> String {
+    format!("<{}:{}:{}>", if emoji.animated { "a" } else { "" }, emoji.name, emoji.id)
 }
 
 fn rows_for(gifs: &[Gif]) -> Vec<GifRow> {
@@ -129,8 +195,19 @@ fn load_previews(app: slint::Weak<AppWindow>, gifs: Vec<Gif>, request: u64) {
     }
 }
 
-/// Shows trending GIFs for an empty query, search results otherwise.
-pub fn load(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str) {
+/// Opens the selected tab: the account's favorites, or trending GIFs.
+pub fn open(ui: &AppWindow, http: Option<DiscordHttpClient>) {
+    let favorites = ui.get_gif_tab() == "favorites";
+    start(ui, http, "", favorites);
+}
+
+/// Searches Discord's GIFs; an empty query shows the trending ones.
+pub fn search(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str) {
+    ui.set_gif_tab(if query.trim().is_empty() { "trending" } else { "search" }.into());
+    start(ui, http, query, false);
+}
+
+fn start(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str, favorites: bool) {
     let Some(http) = http else { return };
     let request = REQUEST.fetch_add(1, Ordering::SeqCst) + 1;
     ui.set_gif_loading(true);
@@ -140,13 +217,15 @@ pub fn load(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str) {
     let app = ui.as_weak();
     let query = query.trim().to_owned();
     tokio::spawn(async move {
-        let gifs = match http.get_gifs(&query).await {
-            Ok(body) => parse_gifs(&body),
-            Err(e) => {
-                log::warn!("GIFs indisponíveis: {}", e);
-                Vec::new()
-            }
+        let result = if favorites {
+            http.get_favorite_gifs().await
+        } else {
+            http.get_gifs(&query).await.map(|body| parse_gifs(&body))
         };
+        let gifs = result.unwrap_or_else(|e| {
+            log::warn!("GIFs indisponíveis: {}", e);
+            Vec::new()
+        });
         let app_ui = app.clone();
         let shown = gifs.clone();
         let _ = slint::invoke_from_event_loop(move || {
@@ -166,9 +245,10 @@ pub fn load(ui: &AppWindow, http: Option<DiscordHttpClient>, query: &str) {
 /// Puts Twemoji images in the emoji picker; the ones still downloading follow.
 pub fn hydrate_emoji_picker(ui: &AppWindow) {
     let cache = emoji_cache::get_emoji_cache();
-    let rows: Vec<EmojiRow> = ui
+    let mut rows: Vec<EmojiRow> = ui
         .get_emoji_rows()
         .iter()
+        .filter(|row| row.emojis.iter().any(|item| !item.is_custom))
         .map(|row| {
             let items: Vec<EmojiPickerItem> = row
                 .emojis
@@ -187,6 +267,38 @@ pub fn hydrate_emoji_picker(ui: &AppWindow) {
             EmojiRow { emojis: ModelRc::new(VecModel::from(items)) }
         })
         .collect();
+
+    let guild_id = ui.get_active_guild_id();
+    let server_emojis = sendable_emojis(
+        emoji_cache::get_all_custom_emojis(),
+        &guild_id,
+        crate::native_video::sender::premium_type(),
+    );
+    let custom: Vec<EmojiRow> = server_emojis
+        .chunks(EMOJIS_PER_ROW)
+        .map(|chunk| {
+            let items: Vec<EmojiPickerItem> = chunk
+                .iter()
+                .map(|emoji| {
+                    let img = cache.get(&emoji.id).unwrap_or_else(|| {
+                        cache.fetch_priority_async(&emoji.id, "", ui.as_weak());
+                        Image::default()
+                    });
+                    EmojiPickerItem {
+                        code: emoji_code(emoji).into(),
+                        name: emoji.name.as_str().into(),
+                        category: "server".into(),
+                        is_custom: true,
+                        emoji_id: emoji.id.as_str().into(),
+                        img,
+                    }
+                })
+                .collect();
+            EmojiRow { emojis: ModelRc::new(VecModel::from(items)) }
+        })
+        .collect();
+    // The open server's emojis come first, as they are the ones used most here.
+    rows.splice(0..0, custom);
     ui.set_emoji_rows(ModelRc::new(VecModel::from(rows)));
 }
 
@@ -221,6 +333,66 @@ mod tests {
     fn falls_back_to_the_other_image_fields() {
         let gifs = parse_gifs(&json!([{ "url": "https://tenor.com/a", "gif_src": "https://media.tenor.com/a.gif" }]));
         assert_eq!(gifs[0].preview, "https://media.tenor.com/a.gif");
+    }
+
+    fn emoji(id: &str, guild: &str, animated: bool) -> emoji_cache::CustomEmojiEntry {
+        emoji_cache::CustomEmojiEntry { id: id.into(), name: id.into(), animated, guild_id: guild.into(), available: true }
+    }
+
+    #[test]
+    fn without_a_plan_only_this_servers_static_emojis_are_offered() {
+        let all = vec![emoji("here", "1", false), emoji("gif", "1", true), emoji("other", "2", false)];
+        let ids: Vec<String> = sendable_emojis(all, "1", 0).into_iter().map(|e| e.id).collect();
+        assert_eq!(ids, ["here"]);
+    }
+
+    #[test]
+    fn with_a_plan_this_server_comes_first() {
+        let all = vec![emoji("other", "2", false), emoji("here", "1", true)];
+        let ids: Vec<String> = sendable_emojis(all, "1", 2).into_iter().map(|e| e.id).collect();
+        assert_eq!(ids, ["here", "other"]);
+    }
+
+    #[test]
+    fn unavailable_emojis_are_not_offered() {
+        let mut locked = emoji("locked", "1", false);
+        locked.available = false;
+        assert!(sendable_emojis(vec![locked], "1", 2).is_empty());
+    }
+
+    #[test]
+    fn emoji_codes_follow_discords_format() {
+        assert_eq!(emoji_code(&emoji("5", "1", false)), "<:5:5>");
+        assert_eq!(emoji_code(&emoji("5", "1", true)), "<a:5:5>");
+    }
+
+    #[test]
+    fn reads_favorites_newest_first() {
+        fn text(tag: u8, value: &str) -> Vec<u8> {
+            let mut out = vec![tag, value.len() as u8];
+            out.extend_from_slice(value.as_bytes());
+            out
+        }
+        fn favorite(url: &str, src: &str, order: u8) -> Vec<u8> {
+            let mut gif = text(0x12, src);
+            gif.extend_from_slice(&[0x28, order]);
+            let mut entry = text(0x0A, url);
+            entry.extend_from_slice(&[0x12, gif.len() as u8]);
+            entry.extend(gif);
+            let mut item = vec![0x0A, entry.len() as u8];
+            item.extend(entry);
+            item
+        }
+        let mut section = favorite("https://tenor.com/old", "https://media.tenor.com/xAAAPo/o.mp4", 1);
+        section.extend(favorite("https://tenor.com/new", "https://media.tenor.com/yAAAPo/n.mp4", 2));
+        // The section is over 127 bytes, so its protobuf length takes two bytes.
+        let mut settings = vec![0x12, (section.len() as u8 & 0x7F) | 0x80, (section.len() >> 7) as u8];
+        settings.extend(section);
+
+        let gifs = parse_favorite_gifs(&settings);
+        assert_eq!(gifs[0].url, "https://tenor.com/new");
+        assert_eq!(gifs[0].preview, "https://media.tenor.com/yAAAAM/n.gif");
+        assert_eq!(gifs[1].url, "https://tenor.com/old");
     }
 
     #[test]

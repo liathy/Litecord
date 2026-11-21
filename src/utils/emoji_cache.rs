@@ -287,6 +287,9 @@ pub struct CustomEmojiEntry {
     pub id: String,
     pub name: String,
     pub animated: bool,
+    pub guild_id: String,
+    /// False when Discord disabled it or it is limited to certain roles.
+    pub available: bool,
 }
 
 static REGISTERED_CUSTOM_EMOJIS: OnceLock<Mutex<Vec<CustomEmojiEntry>>> = OnceLock::new();
@@ -295,13 +298,15 @@ pub fn get_custom_emojis_store() -> &'static Mutex<Vec<CustomEmojiEntry>> {
     REGISTERED_CUSTOM_EMOJIS.get_or_init(|| Mutex::new(Vec::with_capacity(128)))
 }
 
-pub fn register_custom_emoji(id: &str, name: &str, animated: bool) {
+pub fn register_custom_emoji(guild_id: &str, id: &str, name: &str, animated: bool, available: bool) {
     if let Ok(mut store) = get_custom_emojis_store().lock() {
         if !store.iter().any(|e| e.id == id) {
             store.push(CustomEmojiEntry {
                 id: id.to_string(),
                 name: name.to_string(),
                 animated,
+                guild_id: guild_id.to_string(),
+                available,
             });
         }
     }
