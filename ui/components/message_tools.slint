@@ -330,7 +330,8 @@ export component MentionPopup inherits Rectangle {
     in property <[MentionItem]> items;
     in property <int> active;
     callback pick(int);
-    height: Math.min(320px, root.items.length * 40px + 40px);
+    height: root.items.length * 40px + 40px;
+    clip: true;
     border-radius: 8px;
     background: AppTheme.surface-elevated;
     border-width: 1px;
