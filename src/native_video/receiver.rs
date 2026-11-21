@@ -130,21 +130,22 @@ impl NativeVideoSession {
             return;
         };
 
-        let key = ctx
-            .secret_key
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone());
-        let Some(key) = key else {
-            return;
-        };
         let mode = ctx
             .mode
             .lock()
             .map(|guard| TransportMode::from_name(&guard))
             .unwrap_or(TransportMode::Aes256Gcm);
-
-        let Some(mut payload) = decrypt_payload(&key, mode, datagram, &header) else {
+        // Runs for every video packet: the key is borrowed, not copied.
+        let decrypted = {
+            let Ok(guard) = ctx.secret_key.lock() else {
+                return;
+            };
+            let Some(key) = guard.as_ref() else {
+                return;
+            };
+            decrypt_payload(key, mode, datagram, &header)
+        };
+        let Some(mut payload) = decrypted else {
             return;
         };
 

@@ -1243,7 +1243,7 @@ impl ScreenCaptureManager {
                         let _avg_pix_ms = (total_pix_us as f64) / n / 1000.0;
                         let cur_mbps = (REQUESTED_BITRATE_BPS.load(Ordering::Relaxed) as f64) / 1_000_000.0;
 
-                        info!("📊 [DETALHAMENTO DE CPU & GPU (TX)] FPS: {:.1}/{} | Bitrate: {:.2} Mbps | Encode: {:.2}ms | UI Preview: {:.2}ms | Cripto E2EE: {:.2}ms | FEC: {:.2}ms | Rede UDP: {:.2}ms | Espera: {:.2}/{:.2}ms | Pior volta: {:.1}ms | Capturas novas: {}",
+                        log::debug!("📊 [DETALHAMENTO DE CPU & GPU (TX)] FPS: {:.1}/{} | Bitrate: {:.2} Mbps | Encode: {:.2}ms | UI Preview: {:.2}ms | Cripto E2EE: {:.2}ms | FEC: {:.2}ms | Rede UDP: {:.2}ms | Espera: {:.2}/{:.2}ms | Pior volta: {:.1}ms | Capturas novas: {}",
                             fps, target_fps, cur_mbps, avg_enc_ms, avg_preview_ms, avg_crypt_ms, avg_fec_ms, avg_net_ms,
                             total_park_us as f64 / n / 1000.0, total_park_asked_us as f64 / n / 1000.0, max_turn_us as f64 / 1000.0, new_captures);
                         new_captures = 0;

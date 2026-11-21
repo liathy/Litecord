@@ -475,7 +475,6 @@ pub fn start_audio_loopback_tx(
             unsafe {
                 windows_sys::Win32::System::Com::CoInitializeEx(std::ptr::null_mut(), windows_sys::Win32::System::Com::COINIT_MULTITHREADED as u32);
             }
-            let _fine_timer = crate::utils::timer_resolution::FineTimerGuard::new();
             crate::cpu_profiler::set_current_thread_name("audio-loopback-tx");
 
             let mut seq: u32 = 0;
@@ -741,7 +740,8 @@ pub fn start_audio_loopback_tx(
 
             let mut pkts_sent_count: u64 = 0;
             while is_running.load(Ordering::Relaxed) {
-                std::thread::sleep(Duration::from_millis(8));
+                // One wake per 20 ms Opus frame instead of 125 per second.
+                std::thread::sleep(Duration::from_millis(20));
 
                 let chunks_to_send: Vec<Vec<i16>> = {
                     let mut buf = pcm_buffer.lock().unwrap_or_else(|e| e.into_inner());
