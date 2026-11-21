@@ -138,14 +138,13 @@ export component OnboardingView inherits Rectangle {
                                             border-color: option.selected ? AppTheme.accent : AppTheme.surface-control;
                                             background: option.selected ? AppTheme.accent : transparent;
 
-                                            Text {
-                                                text: "✓";
+                                            Image {
+                                                width: 14px;
+                                                height: 14px;
                                                 visible: option.selected;
-                                                color: AppTheme.text-on-accent;
-                                                font-size: TypeScale.caption;
-                                                font-weight: 700;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
+                                                source: @image-url("../../assets/check.svg");
+                                                colorize: AppTheme.text-on-accent;
+                                                image-fit: contain;
                                             }
                                         }
 

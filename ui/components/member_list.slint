@@ -512,11 +512,12 @@ component MenuRow inherits Rectangle {
         border-width: 1px;
         border-color: root.checked ? AppTheme.accent : AppTheme.text-muted;
         background: root.checked ? AppTheme.accent : transparent;
-        if root.checked: Text {
-            text: "✓";
-            color: AppTheme.text-on-accent;
-            font-size: TypeScale.caption;
-            font-weight: 800;
+        if root.checked: Image {
+            width: 14px;
+            height: 14px;
+            source: @image-url("../../assets/check.svg");
+            colorize: AppTheme.text-on-accent;
+            image-fit: contain;
         }
     }
 
