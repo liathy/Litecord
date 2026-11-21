@@ -1977,12 +1977,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         is_muted: final_is_muted,
                         volume: vol,
                         stream_volume: screen_capture::audio_loopback::get_stream_volume(user_id),
+                        stream_slot: 0,
                         priority: prio,
                         is_self,
                         is_streaming: is_streaming_peer,
                         is_stream_hidden: is_hidden,
                     });
                 }
+
+                let mut stream_slots = 0;
+                for participant in participants.iter_mut().filter(|p| p.is_streaming) {
+                    participant.stream_slot = stream_slots;
+                    stream_slots += 1;
+                }
+                ui.set_stream_tile_count(stream_slots);
 
                 let cur_model = ui.get_voice_participants();
                 let mut need_full_rebuild = cur_model.row_count() != participants.len();
@@ -2016,6 +2024,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 || old.username != p.username
                                 || old.avatar_url != p.avatar_url
                                 || old.is_streaming != p.is_streaming
+                                || old.stream_slot != p.stream_slot
                                 || old.is_stream_hidden != p.is_stream_hidden;
                             if level_changed || state_changed {
                                 cur_model.set_row_data(i, p);

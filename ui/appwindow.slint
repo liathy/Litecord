@@ -94,6 +94,7 @@ struct VoiceParticipant {
     is_muted: bool,
     volume: float,
     stream_volume: float,
+    stream_slot: int,
     priority: int,
     is_self: bool,
     is_streaming: bool,
@@ -656,6 +657,9 @@ export component AppWindow inherits Window {
     out property <length> call_chat_width: Math.min(420px, root.width * 0.42);
     callback dock_voice_chat();
     in-out property <int> focus_tile_index: 0;
+    // People without a stream are hidden and take no grid space.
+    in-out property <int> stream_tile_count: 0;
+    out property <bool> tiles_collapsed: root.voice_members_collapsed && root.stream_tile_count > 0;
     in-out property <[VoiceParticipant]> voice_participants: [];
     in-out property <bool> is_in_dm_call: false; // true while a DM voice call is active
     in-out property <bool> has_incoming_call: false;  // true when receiving a DM call
@@ -1788,7 +1792,7 @@ export component AppWindow inherits Window {
 
                             stage_area := Rectangle {
                                 for p[tile_index] in root.voice_participants: Rectangle {
-                                    property <bool> show_participant: !root.voice_members_collapsed
+                                    property <bool> show_participant: !root.tiles_collapsed
                                         || p.is_streaming
                                         || (p.is_self && root.is_screen_sharing)
                                         || root.focused_stream_uid == p.user_id
@@ -1805,7 +1809,8 @@ export component AppWindow inherits Window {
                                     }
 
                                     // Grid of 16:9 tiles, or one focused stream over a row of the others.
-                                    property <int> tile_count: root.voice_participants.length;
+                                    property <int> tile_count: root.tiles_collapsed ? root.stream_tile_count : root.voice_participants.length;
+                                    property <int> grid_index: root.tiles_collapsed ? p.stream_slot : tile_index;
                                     property <int> columns: tile_count <= 1 ? 1 : (tile_count <= 4 ? 2 : (tile_count <= 9 ? 3 : 4));
                                     property <int> rows: Math.ceil(tile_count / columns);
                                     property <length> gap: 8px;
@@ -1813,8 +1818,8 @@ export component AppWindow inherits Window {
                                     property <length> cell_h: (stage_area.height - gap * (rows - 1)) / rows;
                                     property <length> grid_w: Math.min(cell_w, cell_h * 16 / 9);
                                     property <length> grid_h: grid_w * 9 / 16;
-                                    property <int> grid_column: Math.mod(tile_index, columns);
-                                    property <int> grid_row: Math.floor(tile_index / columns);
+                                    property <int> grid_column: Math.mod(grid_index, columns);
+                                    property <int> grid_row: Math.floor(grid_index / columns);
                                     property <int> row_tiles: grid_row == rows - 1 ? tile_count - (rows - 1) * columns : columns;
                                     property <length> grid_x: (stage_area.width - row_tiles * grid_w - (row_tiles - 1) * gap) / 2 + grid_column * (grid_w + gap);
                                     property <length> grid_y: (stage_area.height - rows * grid_h - (rows - 1) * gap) / 2 + grid_row * (grid_h + gap);
