@@ -648,6 +648,7 @@ export component AppWindow inherits Window {
     in-out property <string> current_voice_channel: "";
     in-out property <bool> is_voice_focused: false;
     in-out property <bool> call_chrome_visible: true;
+    in-out property <int> focus_tile_index: 0;
     in-out property <[VoiceParticipant]> voice_participants: [];
     in-out property <bool> is_in_dm_call: false; // true while a DM voice call is active
     in-out property <bool> has_incoming_call: false;  // true when receiving a DM call
@@ -1772,11 +1773,11 @@ export component AppWindow inherits Window {
                             padding-left: 8px;
                             padding-right: 8px;
                             padding-top: 56px;
-                            padding-bottom: 8px;
+                            padding-bottom: 72px;
                             spacing: 0px;
 
-                            ListView {
-                                for p in root.voice_participants: Rectangle {
+                            stage_area := Rectangle {
+                                for p[tile_index] in root.voice_participants: Rectangle {
                                     property <bool> show_participant: !root.voice_members_collapsed
                                         || p.is_streaming
                                         || (p.is_self && root.is_screen_sharing)
@@ -1793,15 +1794,41 @@ export component AppWindow inherits Window {
                                         }
                                     }
 
-                                    height: !show_participant
-                                        ? 0px
-                                        : (is_streaming_attached
-                                            ? (is_this_stream_focused
-                                                ? Math.max(360px, voice_stage_container.height - 72px)
-                                                : Math.max(200px, Math.min(280px, (voice_stage_container.height - 80px) * 0.5)))
-                                            : 76px);
+                                    // Grid of 16:9 tiles, or one focused stream over a row of the others.
+                                    property <int> tile_count: root.voice_participants.length;
+                                    property <int> columns: tile_count <= 1 ? 1 : (tile_count <= 4 ? 2 : (tile_count <= 9 ? 3 : 4));
+                                    property <int> rows: Math.ceil(tile_count / columns);
+                                    property <length> gap: 8px;
+                                    property <length> cell_w: (stage_area.width - gap * (columns - 1)) / columns;
+                                    property <length> cell_h: (stage_area.height - gap * (rows - 1)) / rows;
+                                    property <length> grid_w: Math.min(cell_w, cell_h * 16 / 9);
+                                    property <length> grid_h: grid_w * 9 / 16;
+                                    property <int> grid_column: Math.mod(tile_index, columns);
+                                    property <int> grid_row: Math.floor(tile_index / columns);
+                                    property <int> row_tiles: grid_row == rows - 1 ? tile_count - (rows - 1) * columns : columns;
+                                    property <length> grid_x: (stage_area.width - row_tiles * grid_w - (row_tiles - 1) * gap) / 2 + grid_column * (grid_w + gap);
+                                    property <length> grid_y: (stage_area.height - rows * grid_h - (rows - 1) * gap) / 2 + grid_row * (grid_h + gap);
+                                    property <bool> stage_focused: root.focused_stream_uid != "";
+                                    property <length> strip_h: (root.voice_members_collapsed || tile_count <= 1) ? 0px : 112px;
+                                    property <length> focus_h: stage_area.height - (strip_h > 0px ? strip_h + gap : 0px);
+                                    property <int> strip_index: tile_index - (tile_index > root.focus_tile_index ? 1 : 0);
+                                    property <length> strip_w: 198px;
+                                    property <length> strip_total: (tile_count - 1) * strip_w + (tile_count - 2) * gap;
+                                    property <length> pointer_x: call_area.mouse-x - (self.absolute-position.x - call_area.absolute-position.x);
+                                    property <length> pointer_y: call_area.mouse-y - (self.absolute-position.y - call_area.absolute-position.y);
+                                    property <bool> tile_hovered: call_area.has-hover && pointer_x >= 0px && pointer_y >= 0px && pointer_x <= self.width && pointer_y <= self.height;
+                                    init => { if (is_this_stream_focused) { root.focus_tile_index = tile_index; } }
+                                    changed is_this_stream_focused => { if (is_this_stream_focused) { root.focus_tile_index = tile_index; } }
+                                    property <int> tile_position: tile_index;
+                                    changed tile_position => { if (is_this_stream_focused) { root.focus_tile_index = tile_position; } }
+
+                                    visible: show_participant && (!stage_focused || is_this_stream_focused || strip_h > 0px);
+                                    x: !stage_focused ? grid_x : (is_this_stream_focused ? 0px : (stage_area.width - strip_total) / 2 + strip_index * (strip_w + gap));
+                                    y: !stage_focused ? grid_y : (is_this_stream_focused ? 0px : focus_h + gap);
+                                    width: !stage_focused ? grid_w : (is_this_stream_focused ? stage_area.width : strip_w);
+                                    height: !stage_focused ? grid_h : (is_this_stream_focused ? focus_h : strip_h);
                                     clip: true;
-                                    animate height { duration: 200ms; }
+                                    animate x, y, width, height { duration: 180ms; easing: ease-out; }
                                     background: transparent;
 
                                     // 1. EXPANDED STREAM VIEWPORT (When Streaming in the room & NOT popped out)
@@ -2337,8 +2364,80 @@ export component AppWindow inherits Window {
                                     }
 
                                     // 2. STANDARD VOICE AUDIO RECTANGLE (When NOT streaming OR when Popped Out)
+                                    // The person's tile, with their avatar in the middle.
                                     if !is_streaming_attached: Rectangle {
-                                        y: 4px;
+                                        property <length> avatar_size: Math.min(88px, parent.height * 0.42);
+                                        background: AppTheme.surface-elevated;
+                                        border-radius: 8px;
+                                        border-width: p.is_speaking ? 2px : 0px;
+                                        border-color: AppTheme.success;
+                                        animate border-width { duration: 90ms; }
+
+                                        Rectangle {
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                            width: avatar_size;
+                                            height: avatar_size;
+                                            border-radius: avatar_size / 2;
+                                            background: AppTheme.interactive-hover;
+                                            clip: true;
+                                            Text {
+                                                text: p.avatar_text;
+                                                color: AppTheme.text-strong;
+                                                font-size: TypeScale.title;
+                                                font-weight: 700;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                            if p.avatar_url != "": Image {
+                                                source: p.avatar_img;
+                                                width: 100%;
+                                                height: 100%;
+                                                image-fit: cover;
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            x: 8px;
+                                            y: parent.height - self.height - 8px;
+                                            width: Math.min(tile_name.preferred-width + 16px, parent.width - 16px);
+                                            height: 24px;
+                                            border-radius: 6px;
+                                            background: AppTheme.backdrop-stronger;
+                                            tile_name := Text {
+                                                x: 8px;
+                                                width: parent.width - 16px;
+                                                text: p.username;
+                                                color: AppTheme.text-strong;
+                                                font-size: TypeScale.caption;
+                                                font-weight: 600;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+
+                                        if p.is_muted: Rectangle {
+                                            x: parent.width - self.width - 8px;
+                                            y: parent.height - self.height - 8px;
+                                            width: 24px;
+                                            height: 24px;
+                                            border-radius: 12px;
+                                            background: AppTheme.backdrop-stronger;
+                                            Image {
+                                                width: 14px;
+                                                height: 14px;
+                                                source: @image-url("../assets/microphone-mute.svg");
+                                                colorize: AppTheme.danger;
+                                                image-fit: contain;
+                                            }
+                                        }
+                                    }
+
+                                    // Volume and priority of this person, on hover.
+                                    if !is_streaming_attached && !p.is_self && tile_hovered && parent.width >= 620px: Rectangle {
+                                        x: 4px;
+                                        y: parent.height - 72px;
+                                        width: parent.width - 8px;
                                         height: 68px;
                                         background: p.is_self ? AppTheme.surface-reply : AppTheme.surface-sidebar;
                                         border-radius: 8px;
