@@ -40,6 +40,8 @@ pub struct Member {
     pub status: String,
     pub role_ids: Vec<String>,
     pub is_bot: bool,
+    pub activity: String,
+    pub tag: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +65,41 @@ fn avatar_url(user_id: &str, hash: &str) -> String {
     format!("https://cdn.discordapp.com/avatars/{user_id}/{hash}.webp?size=64")
 }
 
+/// The line under a member's name: their custom status, else what they are doing.
+fn activity_line(presence: &Value) -> String {
+    let activities = presence["activities"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    if let Some(custom) = activities.iter().find(|a| a["type"].as_u64() == Some(4)) {
+        let state = custom["state"].as_str().unwrap_or("").trim();
+        if !state.is_empty() {
+            return state.to_owned();
+        }
+    }
+    activities
+        .iter()
+        .find_map(|activity| {
+            let name = activity["name"].as_str().filter(|n| !n.is_empty())?;
+            let verb = match activity["type"].as_u64()? {
+                0 => "Playing",
+                1 => "Streaming",
+                2 => "Listening to",
+                3 => "Watching",
+                5 => "Competing in",
+                _ => return None,
+            };
+            Some(format!("{verb} {name}"))
+        })
+        .unwrap_or_default()
+}
+
+/// The server tag the user chose to display.
+fn server_tag(user: &Value) -> String {
+    let tag = if user["primary_guild"].is_object() { &user["primary_guild"] } else { &user["clan"] };
+    if tag["identity_enabled"].as_bool() == Some(false) {
+        return String::new();
+    }
+    tag["tag"].as_str().unwrap_or("").to_owned()
+}
+
 fn parse_item(item: &Value) -> Option<Entry> {
     if let Some(group) = item.get("group") {
         return Some(Entry::Group {
@@ -82,6 +119,8 @@ fn parse_item(item: &Value) -> Option<Entry> {
             .map(|roles| roles.iter().filter_map(|r| r.as_str().map(str::to_owned)).collect())
             .unwrap_or_default(),
         is_bot: user["bot"].as_bool().unwrap_or(false),
+        activity: activity_line(&member["presence"]),
+        tag: server_tag(user),
         id,
     }))
 }
@@ -382,6 +421,8 @@ fn row_for(entry: &Option<Entry>, roles: &HashMap<String, Role>) -> MemberRow {
                 name_color: color.map(rgb).unwrap_or_default(),
                 has_name_color: color.is_some(),
                 is_bot: member.is_bot,
+                activity: member.activity.as_str().into(),
+                tag: member.tag.as_str().into(),
                 ..Default::default()
             }
         }
@@ -661,6 +702,26 @@ mod tests {
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("a")] }] }));
         rows.apply(&json!({ "id": "one", "ops": [{ "op": "UPDATE", "index": 0, "item": member("z") }] }));
         assert_eq!(ids(&rows), ["z"]);
+    }
+
+    #[test]
+    fn custom_status_comes_before_a_game() {
+        let presence = json!({ "activities": [{ "type": 0, "name": "Chess" }, { "type": 4, "name": "Custom Status", "state": "away" }] });
+        assert_eq!(activity_line(&presence), "away");
+    }
+
+    #[test]
+    fn describes_what_a_member_is_doing() {
+        assert_eq!(activity_line(&json!({ "activities": [{ "type": 2, "name": "Spotify" }] })), "Listening to Spotify");
+        assert_eq!(activity_line(&json!({ "activities": [{ "type": 4, "name": "Custom Status" }, { "type": 0, "name": "Chess" }] })), "Playing Chess");
+        assert_eq!(activity_line(&json!({})), "");
+    }
+
+    #[test]
+    fn hides_a_disabled_server_tag() {
+        assert_eq!(server_tag(&json!({ "primary_guild": { "tag": "LITE", "identity_enabled": true } })), "LITE");
+        assert_eq!(server_tag(&json!({ "primary_guild": { "tag": "LITE", "identity_enabled": false } })), "");
+        assert_eq!(server_tag(&json!({ "clan": { "tag": "OLD" } })), "OLD");
     }
 
     #[test]

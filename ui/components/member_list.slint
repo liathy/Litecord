@@ -14,6 +14,8 @@ export struct MemberRow {
     name_color: color,
     has_name_color: bool,
     is_bot: bool,
+    activity: string,
+    tag: string,
 }
 
 export struct ProfileRole {
@@ -105,9 +107,11 @@ export component MemberListPanel inherits Rectangle {
 
             if !row.is_group && row.is_loaded: HorizontalLayout {
                 x: 46px;
+                y: row.activity != "" ? 3px : 0px;
                 width: parent.width - 54px;
-                height: parent.height;
+                height: row.activity != "" ? 19px : parent.height;
                 spacing: 5px;
+                alignment: start;
 
                 Text {
                     text: row.label;
@@ -116,7 +120,22 @@ export component MemberListPanel inherits Rectangle {
                     font-weight: 500;
                     vertical-alignment: center;
                     overflow: elide;
-                    horizontal-stretch: 1;
+                }
+
+                if row.tag != "": VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: tag_text.preferred-width + 8px;
+                        height: 15px;
+                        border-radius: 3px;
+                        background: AppTheme.interactive-muted;
+                        tag_text := Text {
+                            text: row.tag;
+                            color: AppTheme.text-secondary;
+                            font-size: TypeScale.micro;
+                            font-weight: 700;
+                        }
+                    }
                 }
 
                 if row.is_bot: VerticalLayout {
@@ -134,6 +153,18 @@ export component MemberListPanel inherits Rectangle {
                         }
                     }
                 }
+            }
+
+            if !row.is_group && row.is_loaded && row.activity != "": Text {
+                x: 46px;
+                y: 21px;
+                width: parent.width - 54px;
+                height: 15px;
+                text: row.activity;
+                color: AppTheme.text-muted;
+                font-size: TypeScale.caption;
+                vertical-alignment: center;
+                overflow: elide;
             }
 
             row_ta := TouchArea {
