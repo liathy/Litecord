@@ -834,6 +834,7 @@ export component AppWindow inherits Window {
     in-out property <string> stream_preview_name: "";
     in-out property <length> stream_preview_y;
     in-out property <bool> stream_row_hover_active: false;
+    in-out property <bool> stream_preview_shown: false;
     in-out property <image> stream_preview_image;
     in-out property <bool> stream_preview_has_image: false;
     callback stream_row_hovered(string);
@@ -1880,6 +1881,7 @@ export component AppWindow inherits Window {
                 stream_row_hover(id, name, y, active) => {
                     root.stream_row_hover_active = active;
                     if (active) {
+                        root.stream_preview_shown = true;
                         root.stream_preview_uid = id;
                         root.stream_preview_name = name;
                         root.stream_preview_y = y;
@@ -4855,8 +4857,14 @@ export component AppWindow inherits Window {
     }
 
     // Preview of a stream while its row in the channel list is hovered.
+    Timer {
+        interval: 350ms;
+        running: root.stream_preview_shown && !root.stream_row_hover_active && !preview_card.hovered;
+        triggered => { root.stream_preview_shown = false; }
+    }
+
     preview_card := StreamPreviewCard {
-        visible: root.stream_row_hover_active || self.hovered;
+        visible: root.stream_preview_shown;
         x: root.channel_sidebar_width + 70px;
         y: Math.max(40px, Math.min(root.stream_preview_y - 60px, root.height - self.height - 12px));
         name: root.stream_preview_name;
@@ -4866,6 +4874,7 @@ export component AppWindow inherits Window {
         watch => {
             root.unhide_stream(root.stream_preview_uid);
             root.stream_row_hover_active = false;
+            root.stream_preview_shown = false;
             if (!root.is_voice_focused) { root.toggle_voice_focus(); }
         }
     }
