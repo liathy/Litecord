@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
 pub mod dm_close;
+pub mod gif_picker;
 pub mod guild_folders;
 pub mod helpers;
 pub mod member_list;

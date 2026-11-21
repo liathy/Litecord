@@ -129,6 +129,22 @@ impl DiscordHttpClient {
             .unwrap_or_default()
     }
 
+    /// Discord's GIF results: trending for an empty query, a search otherwise.
+    pub async fn get_gifs(&self, query: &str) -> Result<serde_json::Value, String> {
+        let mut params = vec![("media_format", "gif"), ("provider", "tenor"), ("locale", "en-US"), ("limit", "40")];
+        let url = if query.is_empty() {
+            "https://discord.com/api/v9/gifs/trending-gifs"
+        } else {
+            params.push(("q", query));
+            "https://discord.com/api/v9/gifs/search"
+        };
+        let resp = self.client.get(url).query(&params).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Status HTTP {}", resp.status()));
+        }
+        resp.json().await.map_err(|e| format!("JSON: {:?}", e))
+    }
+
     pub async fn get_user_dms(&self) -> Result<Vec<serde_json::Value>, String> {
         let url = "https://discord.com/api/v10/users/@me/channels";
         match self.client.get(url).send().await {

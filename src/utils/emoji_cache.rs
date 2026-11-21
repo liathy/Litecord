@@ -184,6 +184,7 @@ impl EmojiCache {
                                     if let Some(ui) = app_weak.upgrade() {
                                         if let Some(img) = cache_arc_ui.get(&id_clone) {
                                             crate::ui::helpers::refresh_channel_emoji(&ui, &id_clone, &img);
+                                            crate::ui::gif_picker::emoji_loaded(&ui, &id_clone, &img);
                                             let messages = ui.get_messages();
                                             let row_count = messages.row_count();
 

@@ -540,6 +540,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let app_weak_emoji_picker = app_weak.clone();
+    app.on_emoji_picker_opened(move || {
+        if let Some(ui) = app_weak_emoji_picker.upgrade() {
+            crate::ui::gif_picker::hydrate_emoji_picker(&ui);
+        }
+    });
+    let app_weak_gif_open = app_weak.clone();
+    let http_gif_open = Arc::clone(&http_client);
+    app.on_open_gif_picker(move || {
+        if let Some(ui) = app_weak_gif_open.upgrade() {
+            let http = http_gif_open.lock().unwrap().as_ref().cloned();
+            crate::ui::gif_picker::load(&ui, http, "");
+        }
+    });
+    let app_weak_gif_search = app_weak.clone();
+    let http_gif_search = Arc::clone(&http_client);
+    app.on_search_gifs(move |query: SharedString| {
+        if let Some(ui) = app_weak_gif_search.upgrade() {
+            let http = http_gif_search.lock().unwrap().as_ref().cloned();
+            crate::ui::gif_picker::load(&ui, http, &query);
+        }
+    });
+
     // The chat of the voice channel the user is in.
     let app_weak_voice_chat = app_weak.clone();
     let active_channel_voice_chat = Arc::clone(&active_channel_id);

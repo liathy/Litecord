@@ -403,6 +403,21 @@ pub fn is_emoji_char(c: char) -> bool {
     )
 }
 
+fn is_regional_indicator(c: char) -> bool {
+    (0x1F1E6..=0x1F1FF).contains(&(c as u32))
+}
+
+/// Slint has no inline text flow, so only a short plain line can mix text and emoji images
+/// without losing its word wrap or the markdown around them.
+fn can_inline_twemoji(line: &str) -> bool {
+    line.chars().count() <= 60 && !line.contains(['*', '_', '~', '`', '|'])
+}
+
+/// Symbols below this range (arrows, ©, shapes) are ordinary text in most messages.
+fn has_twemoji_art(emoji: &str) -> bool {
+    emoji.chars().next().is_some_and(|c| c as u32 >= 0x1F000)
+}
+
 pub fn find_next_unicode_emoji(s: &str) -> Option<(usize, usize, String, String)> {
     let mut char_indices = s.char_indices().peekable();
     while let Some((idx, c)) = char_indices.next() {
@@ -411,7 +426,7 @@ pub fn find_next_unicode_emoji(s: &str) -> Option<(usize, usize, String, String)
             let mut emoji_chars = vec![c];
 
             while let Some(&(next_idx, next_c)) = char_indices.peek() {
-                if next_c == '\u{fe0f}' || next_c == '\u{fe0e}' || next_c == '\u{200d}' || (0x1f3fb..=0x1f3ff).contains(&(next_c as u32)) || (is_emoji_char(next_c) && emoji_chars.last() == Some(&'\u{200d}')) {
+                if next_c == '\u{fe0f}' || next_c == '\u{fe0e}' || next_c == '\u{200d}' || (0x1f3fb..=0x1f3ff).contains(&(next_c as u32)) || (is_emoji_char(next_c) && emoji_chars.last() == Some(&'\u{200d}')) || (emoji_chars.len() == 1 && is_regional_indicator(c) && is_regional_indicator(next_c)) {
                     char_indices.next();
                     end_idx = next_idx + next_c.len_utf8();
                     emoji_chars.push(next_c);
@@ -565,13 +580,12 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
             if let Some(idx) = next_cmd { candidates.push((idx, "cmd")); }
             if let Some((idx, _)) = next_emoji { candidates.push((idx, "emoji")); }
             if let Some(idx) = next_raw_url { candidates.push((idx, "raw_url")); }
-            // Only split unicode emojis if it is a standalone jumbo emoji on the line.
-            // Inline unicode emojis in prose render natively with system fonts in Text with word-wrap!
-            if is_first_block {
-                if let Some((idx, len, _, _)) = next_unicode {
-                    if idx == 0 && rem.len() == len {
-                        candidates.push((idx, "unicode_emoji"));
-                    }
+            // A lone emoji is shown large; in a short plain line each one becomes a Twemoji
+            // image. Longer prose keeps the system font, which wraps.
+            if let Some((idx, len, text, _)) = &next_unicode {
+                let standalone = is_first_block && *idx == 0 && rem.len() == *len;
+                if standalone || (can_inline_twemoji(trimmed_content) && has_twemoji_art(text)) {
+                    candidates.push((*idx, "unicode_emoji"));
                 }
             }
 
@@ -843,9 +857,10 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
                 "unicode_emoji" => {
                     if let Some((u_idx, u_len, u_text, u_id)) = find_next_unicode_emoji(rem) {
                         let before = &rem[..u_idx];
-                        if !before.is_empty() {
+                        if !before.is_empty() || (is_first_block && !prefix.is_empty()) {
+                            let parsed = parse_discord_markdown(before);
                             line_blocks.push(MessageBlockData {
-                                text: parse_discord_markdown(before),
+                                text: if is_first_block { format!("{}{}", prefix, parsed) } else { parsed },
                                 is_link: false,
                                 is_command: false,
                                 is_emoji: false,
@@ -863,6 +878,7 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
                             url: String::new(),
                             command_name: String::new(),
                         });
+                        is_first_block = false;
                         rem = &rem[u_idx + u_len..];
                     } else {
                         let slice_len = first_idx + 1;
@@ -879,6 +895,49 @@ pub fn parse_text_into_lines(input: &str, links: &mut Vec<LinkData>) -> Vec<Mess
     }
 
     lines
+}
+
+#[cfg(test)]
+mod twemoji_tests {
+    use super::*;
+
+    fn emoji_ids(input: &str) -> Vec<String> {
+        let mut links = Vec::new();
+        parse_text_into_lines(input, &mut links)
+            .iter()
+            .flat_map(|line| line.blocks.iter())
+            .filter(|block| block.is_emoji)
+            .map(|block| block.emoji_id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_short_line_uses_twemoji_images() {
+        assert_eq!(emoji_ids("oi 😀 tudo bem 🔥"), ["u_1f600", "u_1f525"]);
+    }
+
+    #[test]
+    fn a_flag_is_one_emoji() {
+        assert_eq!(emoji_ids("🇧🇷"), ["u_1f1e7-1f1f7"]);
+    }
+
+    #[test]
+    fn long_or_formatted_text_stays_as_text() {
+        assert!(emoji_ids(&format!("{} 😀", "palavra ".repeat(12))).is_empty());
+        assert!(emoji_ids("**forte** 😀").is_empty());
+    }
+
+    #[test]
+    fn ordinary_symbols_are_not_turned_into_images() {
+        assert!(emoji_ids("Litecord © 2026 → ok").is_empty());
+    }
+
+    #[test]
+    fn a_list_marker_survives_an_inline_emoji() {
+        let mut links = Vec::new();
+        let lines = parse_text_into_lines("- item 😀", &mut links);
+        assert!(lines[0].blocks[0].text.starts_with("• "));
+    }
 }
 
 /// Slint has no inline text flow: a mixed line is a HorizontalLayout, and a long
