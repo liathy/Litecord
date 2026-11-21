@@ -3613,12 +3613,29 @@ export component AppWindow inherits Window {
 
                     // Message / Smart Command Input Box
                     Rectangle {
-                        height: 56px;
+                        height: 64px;
                         background: AppTheme.surface-chat;
 
-                        HorizontalBox {
-                            padding: 8px;
-                            spacing: 8px;
+                        // One rounded bar holds everything, like Discord's.
+                        Rectangle {
+                            x: 8px;
+                            y: 4px;
+                            width: parent.width - 16px;
+                            height: 52px;
+                            border-radius: 8px;
+                            background: AppTheme.surface-input;
+                            border-width: 1px;
+                            border-color: AppTheme.border-subtle;
+                        }
+
+                        HorizontalLayout {
+                            x: 8px;
+                            y: 4px;
+                            width: parent.width - 16px;
+                            height: 52px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 4px;
 
                             if root.active_command_name != "" : HorizontalLayout {
                                 horizontal-stretch: 1;
@@ -3731,6 +3748,8 @@ export component AppWindow inherits Window {
                             }
 
                             // Attach files
+                            VerticalLayout {
+                                alignment: center;
                             Rectangle {
                                 width: 34px;
                                 height: 34px;
@@ -3739,10 +3758,10 @@ export component AppWindow inherits Window {
                                 animate background { duration: 120ms; }
 
                                 Image {
-                                    x: 9px;
-                                    y: 9px;
-                                    width: 16px;
-                                    height: 16px;
+                                    x: 7px;
+                                    y: 7px;
+                                    width: 20px;
+                                    height: 20px;
                                     source: @image-url("../assets/plus.svg");
                                     colorize: attach_btn_ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary;
                                     image-fit: contain;
@@ -3754,20 +3773,18 @@ export component AppWindow inherits Window {
                                     clicked => { root.pick_files(); }
                                 }
                             }
+                            }
 
                             if root.active_command_name == "" : Rectangle {
                                 horizontal-stretch: 1;
-                                background: AppTheme.surface-input;
-                                border-radius: 4px;
-                                border-width: 1px;
-                                border-color: chat_text_input.has-focus ? AppTheme.accent : AppTheme.border-subtle;
+                                background: transparent;
                                 clip: true;
 
                                 if root.chat_input_text == "" : Text {
                                     x: 10px;
                                     width: parent.width - 20px;
                                     height: 100%;
-                                    text: root.tr_chat_placeholder_prefix + root.active_channel_name + "...";
+                                    text: root.tr_chat_placeholder_prefix + (root.active_guild_id == "@me" ? "@" : "#") + root.active_channel_name;
                                     color: AppTheme.text-subtle;
                                     font-family: ChatTypography.family;
                                     font-size: ChatTypography.body-size;
@@ -3821,85 +3838,73 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            // GIF picker trigger button
-                            Rectangle {
-                                width: 40px;
-                                height: 34px;
-                                border-radius: 6px;
-                                background: gif_btn_ta.has-hover ? AppTheme.interactive-hover : (root.show_gif_picker ? AppTheme.interactive-selected : transparent);
-                                animate background { duration: 120ms; }
-
-                                Text {
-                                    text: "GIF";
-                                    color: AppTheme.text-secondary;
-                                    font-size: TypeScale.caption;
-                                    font-weight: 800;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                gif_btn_ta := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.show_gif_picker = !root.show_gif_picker;
-                                        if (root.show_gif_picker) {
-                                            root.show_emoji_picker = false;
-                                            root.show_soundboard_panel = false;
-                                            root.show_command_suggestions = false;
-                                            root.open_gif_picker();
+                            // GIF picker
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: gif_btn_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                    Rectangle {
+                                        x: 5px;
+                                        y: 7px;
+                                        width: 22px;
+                                        height: 18px;
+                                        border-radius: 4px;
+                                        background: gif_btn_ta.has-hover || root.show_gif_picker ? AppTheme.text-strong : AppTheme.text-secondary;
+                                        Text {
+                                            text: "GIF";
+                                            color: AppTheme.surface-input;
+                                            font-size: 10px;
+                                            font-weight: 800;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    gif_btn_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.show_gif_picker = !root.show_gif_picker;
+                                            if (root.show_gif_picker) {
+                                                root.show_emoji_picker = false;
+                                                root.show_soundboard_panel = false;
+                                                root.show_command_suggestions = false;
+                                                root.open_gif_picker();
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                            // Emoji picker trigger button
-                            Rectangle {
-                                width: 34px;
-                                height: 34px;
-                                border-radius: 6px;
-                                background: emoji_btn_ta.has-hover ? AppTheme.interactive-hover : (root.show_emoji_picker ? AppTheme.interactive-selected : transparent);
-                                animate background { duration: 120ms; }
-
-                                Text {
-                                    text: "😊";
-                                    font-size: 16px;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                emoji_btn_ta := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.show_emoji_picker = !root.show_emoji_picker;
-                                        if (root.show_emoji_picker) {
-                                            root.show_soundboard_panel = false;
-                                            root.show_command_suggestions = false;
-                                        }
+                            // Emoji picker
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 6px;
+                                    background: emoji_btn_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                    animate background { duration: 120ms; easing: ease-out; }
+                                    Image {
+                                        x: 5px;
+                                        y: 5px;
+                                        width: 22px;
+                                        height: 22px;
+                                        source: @image-url("../assets/emoji.svg");
+                                        colorize: emoji_btn_ta.has-hover || root.show_emoji_picker ? AppTheme.text-strong : AppTheme.text-secondary;
+                                        image-fit: contain;
                                     }
-                                }
-                            }
-
-                            Button {
-                                text: root.tr_send;
-                                primary: true;
-                                clicked => {
-                                    if (root.active_command_name != "") {
-                                        root.execute_active_command(
-                                            root.active_command_name,
-                                            root.command_arg_text,
-                                            root.active_command_app_id,
-                                            root.active_command_cmd_id,
-                                            root.active_command_version,
-                                            root.active_param_name
-                                        );
-                                        root.active_command_name = "";
-                                        root.command_arg_text = "";
-                                    } else if (root.show_command_suggestions && root.command_suggestions.length > 0) {
-                                        root.select_suggestion(root.active_suggestion_index);
-                                    } else if ((root.chat_input_text != "" || root.pending_files.length > 0) && !root.file_uploading) {
-                                        root.send_message(root.chat_input_text);
-                                        root.chat_input_text = "";
-                                        root.show_command_suggestions = false;
+                                    emoji_btn_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.show_emoji_picker = !root.show_emoji_picker;
+                                            if (root.show_emoji_picker) {
+                                                root.show_soundboard_panel = false;
+                                                root.show_command_suggestions = false;
+                                            }
+                                        }
                                     }
                                 }
                             }
