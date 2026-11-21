@@ -13,6 +13,7 @@ pub mod voice_identity;
 pub mod gif_picker;
 pub mod guild_folders;
 pub mod helpers;
+pub mod image_viewer;
 pub mod member_list;
 pub mod notifications;
 pub mod presence;

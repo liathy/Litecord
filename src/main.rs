@@ -4474,6 +4474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::ui::navigation::install(&app);
     crate::ui::chat_actions::install(&app);
     crate::ui::presence::install(&app);
+    crate::ui::image_viewer::install(&app);
     crate::ui::channel_panel::install(&app, crate::ui::channel_tools::Context {
         http: Arc::clone(&http_client),
         guilds: Arc::clone(&guilds_map),

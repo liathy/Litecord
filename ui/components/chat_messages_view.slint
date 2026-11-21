@@ -148,6 +148,7 @@ export component ChatMessagesView inherits Rectangle {
     callback load_older_messages();
     callback open_link(string);
     callback download_attachment(string, string, string);
+    callback open_image(MessageAttachment);
     callback click_command(string);
     callback bottom_state_changed(bool);
     in property <[MessageReaction]> quick_reactions;
@@ -1242,7 +1243,14 @@ export component ChatMessagesView inherits Rectangle {
                                 image-fit: contain;
                             }
 
+                            if att.is_image && !att.is_gif && att.is_downloaded : TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open_image(att); }
+                            }
+
                             if att.is_gif && att.is_downloaded : gif_area := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open_image(att); }
                                 changed has-hover => { GifPlayback.hover(att.id, att.url, self.has-hover); }
 
                                 if gif_area.has-hover || att.is_favorite: Rectangle {

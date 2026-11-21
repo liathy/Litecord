@@ -10,8 +10,9 @@ import { MemberListPanel, MemberRow, ProfileCard, ProfileRole, UserContextMenu }
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
-import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard } from "components/message_tools.slint";
+import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
 import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow } from "components/channel_tools.slint";
+import { GifPlayback } from "components/chat_messages_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
 
@@ -696,6 +697,18 @@ export component AppWindow inherits Window {
     in-out property <length> pip_offset_x: 0px;
     in-out property <length> pip_offset_y: 0px;
     in-out property <bool> pip_dragging: false;
+
+    // Image viewer
+    callback image_viewer(string);
+    in-out property <bool> viewer_open: false;
+    in-out property <image> viewer_img;
+    in-out property <string> viewer_id: "";
+    in-out property <string> viewer_url: "";
+    in-out property <string> viewer_proxy: "";
+    in-out property <string> viewer_name: "";
+    in-out property <bool> viewer_gif: false;
+    in-out property <int> viewer_width: 0;
+    in-out property <int> viewer_height: 0;
 
     // Channel header panel
     callback channel_panel_action(string, string, string);
@@ -3357,6 +3370,18 @@ export component AppWindow inherits Window {
                         message_action(name, id, extra, x, y) => { root.message_action(name, id, extra, x, y); }
                         open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                         download_attachment(id, fn, url) => { root.download_attachment(id, fn, url); }
+                        open_image(att) => {
+                            root.viewer_img = att.full_img;
+                            root.viewer_id = att.id;
+                            root.viewer_url = att.url;
+                            root.viewer_proxy = att.proxy_url;
+                            root.viewer_name = att.filename;
+                            root.viewer_gif = att.is_gif;
+                            root.viewer_width = att.width;
+                            root.viewer_height = att.height;
+                            root.viewer_open = true;
+                            root.image_viewer("open");
+                        }
                         click_command(cmd) => {
                             root.click_command(cmd);
                         }
@@ -5021,6 +5046,18 @@ export component AppWindow inherits Window {
         can_invite: root.can_create_invite;
         close => { root.channel_menu_open = false; }
         action(name, id) => { root.channel_action(name, id, 0px, 0px); }
+    }
+
+    if root.viewer_open: ImageViewer {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        z: 60;
+        source: root.viewer_gif && GifPlayback.id == root.viewer_id ? GifPlayback.frame : root.viewer_img;
+        filename: root.viewer_name;
+        close => { root.image_viewer("close"); }
+        open_browser => { root.image_viewer("browser"); }
     }
 
     if root.channel_panel != "": ChannelPanel {

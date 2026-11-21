@@ -494,3 +494,63 @@ export component StreamPreviewCard inherits Rectangle {
         }
     }
 }
+
+export component ImageViewer inherits Rectangle {
+    in property <image> source;
+    in property <string> filename;
+    callback close();
+    callback open_browser();
+
+    background: AppTheme.backdrop-max;
+    forward-focus: keys;
+    init => { keys.focus(); }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    TouchArea { clicked => { root.close(); } }
+
+    Image {
+        x: 40px;
+        y: 32px;
+        width: root.width - 80px;
+        height: root.height - 88px;
+        source: root.source;
+        image-fit: contain;
+    }
+
+    Text {
+        x: 40px;
+        y: root.height - 40px;
+        width: root.width - 220px;
+        height: 24px;
+        text: root.filename;
+        color: AppTheme.text-secondary;
+        font-size: TypeScale.small;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Rectangle {
+        x: root.width - self.width - 40px;
+        y: root.height - 42px;
+        width: 128px;
+        height: 28px;
+        border-radius: 4px;
+        background: browser_ta.has-hover ? AppTheme.interactive-selected : transparent;
+        Text {
+            text: "Open in Browser";
+            color: AppTheme.solid-white;
+            font-size: TypeScale.small;
+            font-weight: 600;
+        }
+        browser_ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.open_browser(); }
+        }
+    }
+}
