@@ -1,5 +1,8 @@
 //! Low-level memory management and heap purging utilities.
 
+// The allocator is installed by the app; library test builds still need its symbols linked.
+extern crate mimalloc as _;
+
 extern "C" {
     fn mi_collect(force: bool);
 }
