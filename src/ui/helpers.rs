@@ -919,7 +919,9 @@ pub fn map_message_attachments(
             (true, img)
         } else {
             if a.id.starts_with("embed_img_") {
-                att_cache.download_full_async(&a.id, &a.filename, &a.url, app_weak.clone());
+                // A GIF link's `url` is the animation: the chat loads its still picture.
+                let picture = if a.content_type == "image/gif" { &a.proxy_url } else { &a.url };
+                att_cache.download_full_async(&a.id, &a.filename, picture, app_weak.clone());
             }
             (false, slint::Image::default())
         };
@@ -955,6 +957,7 @@ pub fn map_message_attachments(
             width,
             height,
             is_image: a.is_image,
+            is_gif: a.content_type == "image/gif",
             is_downloaded,
             is_loading,
             full_img,

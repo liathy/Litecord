@@ -1126,6 +1126,65 @@ pub fn extract_commands_from_text(text: &str, commands: &mut Vec<String>) {
     }
 }
 
+/// Cache id of an embedded picture: the same link is the same picture in any message.
+fn embed_image_id(url: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut hasher);
+    format!("embed_img_{:016x}", hasher.finish())
+}
+
+/// The animated file behind a GIF link. Tenor and Giphy embeds point at an MP4 with a GIF
+/// next to it; anything else plays from Discord's own image proxy.
+fn gif_source_url(embed: &Value) -> Option<String> {
+    let video = embed["video"]["url"].as_str().unwrap_or("");
+    if let Ok(parsed) = reqwest::Url::parse(video) {
+        let host = parsed.host_str().unwrap_or("");
+        if host.ends_with(".tenor.com") && video.ends_with(".mp4") {
+            let parts: Vec<&str> = parsed.path_segments()?.collect();
+            if let [media, name] = parts.as_slice() {
+                if media.len() > 4 && media.is_char_boundary(media.len() - 4) {
+                    let stem = name.strip_suffix(".mp4")?;
+                    return Some(format!("https://media.tenor.com/{}AAAC/{}.gif", &media[..media.len() - 4], stem));
+                }
+            }
+        }
+        if host.ends_with(".giphy.com") && video.ends_with(".mp4") {
+            return Some(format!("{}.gif", video.strip_suffix(".mp4")?));
+        }
+    }
+    let proxy = embed["thumbnail"]["proxy_url"].as_str().filter(|url| !url.is_empty())?;
+    let separator = if proxy.contains('?') { '&' } else { '?' };
+    Some(format!("{proxy}{separator}animated=true"))
+}
+
+/// A GIF link as an attachment: `url` is the animation, `proxy_url` its still picture.
+fn gif_embed_attachment(embed: &Value) -> Option<MessageAttachmentData> {
+    let page = embed["url"].as_str().unwrap_or("");
+    let is_gif = match embed["type"].as_str() {
+        Some("gifv") => true,
+        Some("image") => reqwest::Url::parse(page).is_ok_and(|url| url.path().to_ascii_lowercase().ends_with(".gif")),
+        _ => false,
+    };
+    if !is_gif {
+        return None;
+    }
+    let thumbnail = &embed["thumbnail"];
+    let poster = thumbnail["proxy_url"].as_str().or_else(|| thumbnail["url"].as_str()).filter(|url| !url.is_empty())?;
+    Some(MessageAttachmentData {
+        id: embed_image_id(page),
+        filename: "gif_preview.png".to_string(),
+        url: gif_source_url(embed)?,
+        proxy_url: poster.to_string(),
+        size_bytes: 0,
+        size_str: String::new(),
+        width: thumbnail["width"].as_i64().or_else(|| embed["video"]["width"].as_i64()).unwrap_or(0) as i32,
+        height: thumbnail["height"].as_i64().or_else(|| embed["video"]["height"].as_i64()).unwrap_or(0) as i32,
+        content_type: "image/gif".to_string(),
+        is_image: true,
+    })
+}
+
 pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<MessageLineData>, String, Vec<MessageLineData>, String, String, String, String, String, String, Vec<LinkData>, Vec<MessageButtonData>, Vec<MessageAttachmentData>) {
     let mut content_parts: Vec<String> = Vec::new();
     let mut commands: Vec<String> = Vec::new();
@@ -1291,6 +1350,18 @@ pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<Mess
     // 2. Embeds → go into embed_content & embed_lines
     if let Some(embeds) = m["embeds"].as_array() {
         for embed in embeds {
+            if let Some(gif) = gif_embed_attachment(embed) {
+                // Like Discord: a message that is only the link shows only the GIF.
+                let page = embed["url"].as_str().unwrap_or("");
+                if m.get("message_snapshots").is_none() && m["content"].as_str().map(str::trim) == Some(page) {
+                    content_parts.clear();
+                    content_lines.clear();
+                    links.retain(|link| link.url != page);
+                }
+                attachments_list.push(gif);
+                continue;
+            }
+
             let mut ep: Vec<String> = Vec::new();
 
             // Embed author
@@ -1411,7 +1482,7 @@ pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<Mess
                         url: img_url.to_string(),
                     });
                     attachments_list.push(MessageAttachmentData {
-                        id: format!("embed_img_{}", attachments_list.len()),
+                        id: embed_image_id(img_url),
                         filename: "embed_image.png".to_string(),
                         url: img_url.to_string(),
                         proxy_url: proxy_img.to_string(),
@@ -2013,5 +2084,57 @@ mod tests {
         let lines = parse_text_into_lines("When: soon | [RSVP now](https://example.com)", &mut links);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].blocks.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod gif_embed_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_tenor_link_uses_its_real_gif_and_keeps_a_still_picture() {
+        let embed = json!({
+            "type": "gifv",
+            "url": "https://tenor.com/view/hug-gif-1",
+            "video": { "url": "https://media.tenor.com/vwCNTTZRkt0AAAPo/hug-billy-herrera.mp4" },
+            "thumbnail": { "url": "https://media.tenor.com/x.png", "proxy_url": "https://images-ext-1.discordapp.net/x.png", "width": 498, "height": 280 }
+        });
+        let gif = gif_embed_attachment(&embed).unwrap();
+        assert_eq!(gif.url, "https://media.tenor.com/vwCNTTZRkt0AAAAC/hug-billy-herrera.gif");
+        assert_eq!(gif.proxy_url, "https://images-ext-1.discordapp.net/x.png");
+        assert_eq!((gif.width, gif.height), (498, 280));
+        assert_eq!(gif.content_type, "image/gif");
+    }
+
+    #[test]
+    fn other_gif_sites_play_through_discords_proxy() {
+        let embed = json!({
+            "type": "gifv",
+            "url": "https://klipy.com/gifs/slungus-bunny",
+            "thumbnail": { "proxy_url": "https://images-ext-1.discordapp.net/a.webp?format=webp" }
+        });
+        assert_eq!(gif_embed_attachment(&embed).unwrap().url, "https://images-ext-1.discordapp.net/a.webp?format=webp&animated=true");
+    }
+
+    #[test]
+    fn a_message_that_is_only_the_link_shows_only_the_gif() {
+        let message = json!({
+            "id": "1", "type": 0, "content": "https://tenor.com/view/hug-gif-1",
+            "embeds": [{
+                "type": "gifv", "url": "https://tenor.com/view/hug-gif-1", "title": "Hug",
+                "thumbnail": { "proxy_url": "https://images-ext-1.discordapp.net/x.png" }
+            }]
+        });
+        let parts = format_discord_message_parts(&message);
+        assert!(parts.2.is_empty());
+        assert!(parts.11.is_empty());
+        assert_eq!(parts.13.len(), 1);
+    }
+
+    #[test]
+    fn ordinary_link_embeds_are_not_gifs() {
+        let embed = json!({ "type": "article", "url": "https://example.com", "thumbnail": { "proxy_url": "https://x/y.png" } });
+        assert!(gif_embed_attachment(&embed).is_none());
     }
 }

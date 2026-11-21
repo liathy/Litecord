@@ -4421,6 +4421,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
+    crate::ui::gif_player::install(&app);
+
     let app_weak_pick_files = app_weak.clone();
     app.on_pick_files(move || {
         if let Some(ui) = app_weak_pick_files.upgrade() {
