@@ -1884,6 +1884,11 @@ export component AppWindow inherits Window {
                                         TouchArea {
                                             mouse-cursor: pointer;
                                             clicked => { root.focus_stream(p.user_id); }
+                                            pointer-event(event) => {
+                                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                                    root.open_user_menu(p.user_id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                                }
+                                            }
                                         }
 
                                         // Top Overlay Bar (Left: Live badge, username, mute, prio | Right: Popout, Fullscreen)
@@ -2374,6 +2379,14 @@ export component AppWindow inherits Window {
                                         border-color: AppTheme.success;
                                         animate border-width { duration: 90ms; }
 
+                                        TouchArea {
+                                            pointer-event(event) => {
+                                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                                    root.open_user_menu(p.user_id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                                }
+                                            }
+                                        }
+
                                         Rectangle {
                                             x: (parent.width - self.width) / 2;
                                             y: (parent.height - self.height) / 2;
@@ -2414,6 +2427,51 @@ export component AppWindow inherits Window {
                                                 font-weight: 600;
                                                 vertical-alignment: center;
                                                 overflow: elide;
+                                            }
+                                        }
+
+                                        // Someone is live and this client is not watching yet.
+                                        if p.is_streaming && !p.is_self: Rectangle {
+                                            x: parent.width - self.width - 8px;
+                                            y: 8px;
+                                            width: live_tile_text.preferred-width + 12px;
+                                            height: 16px;
+                                            border-radius: 8px;
+                                            background: AppTheme.danger-action;
+                                            live_tile_text := Text {
+                                                text: Tr.live_badge;
+                                                color: AppTheme.text-on-accent;
+                                                font-size: 11px;
+                                                font-weight: 700;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        if p.is_streaming && !p.is_self: Rectangle {
+                                            x: (parent.width - self.width) / 2;
+                                            y: Math.min(parent.height - self.height - 40px, (parent.height + avatar_size) / 2 + 10px);
+                                            width: watch_text.preferred-width + 32px;
+                                            height: 32px;
+                                            border-radius: 6px;
+                                            background: watch_ta.pressed ? AppTheme.accent-hover : (watch_ta.has-hover ? AppTheme.accent-bright : AppTheme.accent);
+                                            animate background { duration: 120ms; easing: ease-out; }
+                                            accessible-role: button;
+                                            accessible-label: Tr.watch_stream;
+                                            watch_text := Text {
+                                                text: Tr.watch_stream;
+                                                color: AppTheme.text-on-accent;
+                                                font-size: TypeScale.small;
+                                                font-weight: 600;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                            watch_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.unhide_stream(p.user_id);
+                                                    root.focus_stream(p.user_id);
+                                                }
                                             }
                                         }
 
