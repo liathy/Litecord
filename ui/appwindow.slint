@@ -3992,6 +3992,21 @@ export component AppWindow inherits Window {
         close => { root.show_profile = false; }
     }
 
+    // A click anywhere outside an open picker closes it.
+    if root.show_gif_picker || root.show_emoji_picker || root.show_sticker_picker || root.show_soundboard_panel: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        clicked => {
+            root.show_gif_picker = false;
+            root.show_emoji_picker = false;
+            root.show_sticker_picker = false;
+            root.show_soundboard_panel = false;
+            root.reaction_target_id = "";
+        }
+    }
+
                     // Discord-style Soundboard Panel Box
                     if root.show_soundboard_panel : Rectangle {
                         x: 80px;
