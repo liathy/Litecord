@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+pub mod channel_tools;
 pub mod chat_actions;
 pub mod dm_close;
 pub mod expression_picker;

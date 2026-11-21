@@ -58,6 +58,26 @@ component VoicePanelButton inherits Rectangle {
     }
 }
 
+component RowAction inherits Rectangle {
+    in property <image> icon;
+    callback clicked();
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: action_ta.has-hover ? AppTheme.interactive-selected : transparent;
+    Image {
+        width: 14px;
+        height: 14px;
+        source: root.icon;
+        colorize: action_ta.has-hover ? AppTheme.text-strong : AppTheme.text-muted;
+        image-fit: contain;
+    }
+    action_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 export component ChannelSidebar inherits Rectangle {
     in property <string> active_guild_name;
     in property <string> tr_server_channels;
@@ -95,6 +115,16 @@ export component ChannelSidebar inherits Rectangle {
     callback open_voice_chat();
     callback toggle_soundboard();
     callback stream_row_hover(string, string, length, bool);
+    callback channel_action(string, string, length, length);
+    in property <bool> can_manage_channels;
+    in property <bool> can_create_invite;
+    in property <bool> in_server;
+    pure function row_action_count(category: bool, voice: bool) -> int {
+        if (category) {
+            return root.can_manage_channels ? 1 : 0;
+        }
+        return (voice ? 1 : 0) + (root.can_create_invite ? 1 : 0) + (root.can_manage_channels ? 1 : 0);
+    }
     in property <bool> soundboard_open;
     in property <bool> is_voice_focused;
     // While the call is on screen its channel is the selected row, not the last text channel.
@@ -443,6 +473,9 @@ export component ChannelSidebar inherits Rectangle {
                                 if (channel.is_voice_member && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                                     root.open_user_menu(channel.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                                 }
+                                if (!channel.is_voice_member && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                    root.channel_action("menu", channel.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
                                 if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                                     if (root.dragging_channel_idx >= 0 && root.drop_target_channel_idx >= 0 && root.dragging_channel_idx != root.drop_target_channel_idx) {
                                         root.reorder_channel(root.dragging_channel_idx, root.drop_target_channel_idx);
@@ -475,6 +508,40 @@ export component ChannelSidebar inherits Rectangle {
                                             root.active_channel_id = channel.id;
                                         }
                                         root.select_channel(channel.is_voice_member ? channel.parent_channel_id : channel.id);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Discord's row buttons, shown while the pointer is on the row.
+                        if root.in_server && !channel.is_voice_member && root.row_action_count(channel.is_category, channel.is_voice) > 0: Rectangle {
+                            x: parent.width - self.width - 4px;
+                            y: channel.is_category && channel.has_separator ? 13px : (parent.height - self.height) / 2;
+                            width: root.row_action_count(channel.is_category, channel.is_voice) * 22px + 2px;
+                            height: 22px;
+                            border-radius: 4px;
+                            background: channel.is_category ? AppTheme.surface-sidebar : AppTheme.interactive-hover;
+                            visible: touch_area.has-hover || row_tools.has-hover;
+                            row_tools := TouchArea {
+                                HorizontalLayout {
+                                    padding: 1px;
+                                    spacing: 2px;
+                                    alignment: end;
+                                    if channel.is_category: RowAction {
+                                        icon: @image-url("../../assets/plus.svg");
+                                        clicked => { root.channel_action("create", channel.id, 0px, 0px); }
+                                    }
+                                    if channel.is_voice: RowAction {
+                                        icon: @image-url("../../assets/message-square.svg");
+                                        clicked => { root.channel_action("open_chat", channel.id, 0px, 0px); }
+                                    }
+                                    if !channel.is_category && root.can_create_invite: RowAction {
+                                        icon: @image-url("../../assets/users.svg");
+                                        clicked => { root.channel_action("invite", channel.id, 0px, 0px); }
+                                    }
+                                    if !channel.is_category && root.can_manage_channels: RowAction {
+                                        icon: @image-url("../../assets/settings.svg");
+                                        clicked => { root.channel_action("settings", channel.id, 0px, 0px); }
                                     }
                                 }
                             }

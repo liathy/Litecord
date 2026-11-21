@@ -4082,6 +4082,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let http = http_members.lock().unwrap().as_ref().cloned();
             let tx = cmd_tx_members.lock().unwrap().as_ref().cloned();
             crate::ui::notifications::set_open_channel(&ui.get_active_channel_id());
+            crate::ui::channel_tools::refresh_permissions(&ui, http.clone());
             crate::ui::member_list::context_changed(&ui, http, tx);
         }
     });
@@ -4472,6 +4473,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::ui::gif_player::install(&app);
     crate::ui::navigation::install(&app);
     crate::ui::chat_actions::install(&app);
+    crate::ui::channel_tools::install(&app, crate::ui::channel_tools::Context {
+        http: Arc::clone(&http_client),
+        guilds: Arc::clone(&guilds_map),
+        active_guild: Arc::clone(&active_guild_id),
+        active_channel: Arc::clone(&active_channel_id),
+    });
 
     let app_weak_msg_action = app_weak.clone();
     let http_msg_action = Arc::clone(&http_client);

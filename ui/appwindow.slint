@@ -11,6 +11,7 @@ import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard } from "components/message_tools.slint";
+import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen } from "components/channel_tools.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
 
@@ -691,6 +692,56 @@ export component AppWindow inherits Window {
     in-out property <string> confirm_text: "";
     in-out property <string> confirm_action: "";
     in-out property <string> confirm_message_id: "";
+
+    // Channel tools
+    callback channel_action(string, string, length, length);
+    in-out property <bool> can_manage_channels: false;
+    in-out property <bool> can_create_invite: false;
+    in-out property <bool> channel_menu_open: false;
+    in-out property <string> channel_menu_id: "";
+    in-out property <length> channel_menu_x;
+    in-out property <length> channel_menu_y;
+    in-out property <bool> channel_menu_is_voice: false;
+    in-out property <bool> channel_menu_is_category: false;
+    in-out property <bool> channel_menu_in_server: false;
+    in-out property <bool> channel_menu_muted: false;
+    in-out property <bool> create_channel_open: false;
+    in-out property <string> create_channel_parent: "";
+    in-out property <string> create_channel_category: "";
+    in-out property <int> create_channel_kind: 0;
+    in-out property <string> create_channel_name: "";
+    in-out property <bool> create_channel_private: false;
+    in-out property <string> create_channel_error: "";
+    in-out property <bool> create_channel_busy: false;
+    in-out property <bool> invite_open: false;
+    in-out property <string> invite_channel: "";
+    in-out property <string> invite_link: "";
+    in-out property <string> invite_status: "";
+    in-out property <string> channel_confirm_text: "";
+    in-out property <string> channel_confirm_action: "";
+    in-out property <string> channel_confirm_id: "";
+    in-out property <bool> channel_settings_open: false;
+    in-out property <string> channel_settings_id: "";
+    in-out property <string> channel_settings_title: "";
+    in-out property <bool> channel_settings_is_voice: false;
+    in-out property <bool> channel_settings_is_category: false;
+    in-out property <string> channel_settings_tab: "overview";
+    in-out property <string> channel_settings_name: "";
+    in-out property <string> channel_settings_topic: "";
+    in-out property <string> channel_settings_slowmode: "";
+    in-out property <string> channel_settings_bitrate: "";
+    in-out property <bool> channel_settings_full_video: false;
+    in-out property <bool> channel_settings_private: false;
+    in-out property <string> channel_settings_saved_name: "";
+    in-out property <string> channel_settings_saved_topic: "";
+    in-out property <string> channel_settings_saved_slowmode: "";
+    in-out property <string> channel_settings_saved_bitrate: "";
+    in-out property <bool> channel_settings_saved_full_video: false;
+    in-out property <bool> channel_settings_saved_private: false;
+    in-out property <[ChannelInfoRow]> channel_settings_rows: [];
+    in-out property <string> channel_settings_status: "";
+    in-out property <string> channel_settings_error: "";
+    in-out property <bool> channel_settings_busy: false;
     in-out property <string> forward_message_id: "";
     in-out property <[ForwardTarget]> forward_targets: [];
     in-out property <[MentionItem]> mention_items: [];
@@ -1766,6 +1817,10 @@ export component AppWindow inherits Window {
                     }
                 }
                 open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
+                channel_action(name, id, x, y) => { root.channel_action(name, id, x, y); }
+                can_manage_channels: root.can_manage_channels;
+                can_create_invite: root.can_create_invite;
+                in_server: root.active_guild_id != "@me" && root.active_guild_id != "";
                 is_screen_sharing: root.is_screen_sharing;
                 open_stream_modal => {
                     root.stream_source_tab = "screens";
@@ -4794,6 +4849,94 @@ export component AppWindow inherits Window {
         action(name) => { root.user_menu_action(name); }
         volume_changed(value) => { root.set_user_volume(root.user_menu_user_id, value); }
         toggle_mute => { root.toggle_user_mute(root.user_menu_user_id); }
+    }
+
+    if root.channel_settings_open: ChannelSettingsScreen {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        title: root.channel_settings_title;
+        is_voice: root.channel_settings_is_voice;
+        is_category: root.channel_settings_is_category;
+        tab: root.channel_settings_tab;
+        name <=> root.channel_settings_name;
+        topic <=> root.channel_settings_topic;
+        slowmode <=> root.channel_settings_slowmode;
+        bitrate <=> root.channel_settings_bitrate;
+        full_video <=> root.channel_settings_full_video;
+        is_private <=> root.channel_settings_private;
+        saved_name: root.channel_settings_saved_name;
+        saved_topic: root.channel_settings_saved_topic;
+        saved_slowmode: root.channel_settings_saved_slowmode;
+        saved_bitrate: root.channel_settings_saved_bitrate;
+        saved_full_video: root.channel_settings_saved_full_video;
+        saved_private: root.channel_settings_saved_private;
+        rows: root.channel_settings_rows;
+        status: root.channel_settings_status;
+        error: root.channel_settings_error;
+        busy: root.channel_settings_busy;
+        close => { root.channel_settings_open = false; }
+        pick_tab(name) => { root.channel_action("tab", name, 0px, 0px); }
+        save => { root.channel_action("save", "", 0px, 0px); }
+        reset => { root.channel_action("reset", "", 0px, 0px); }
+        ask_delete => { root.channel_action("ask_delete", root.channel_settings_id, 0px, 0px); }
+        remove_row(id) => { root.channel_action("ask_revoke", id, 0px, 0px); }
+    }
+
+    if root.create_channel_open: CreateChannelDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        category: root.create_channel_category;
+        kind <=> root.create_channel_kind;
+        name <=> root.create_channel_name;
+        is_private <=> root.create_channel_private;
+        error: root.create_channel_error;
+        busy: root.create_channel_busy;
+        close => { root.create_channel_open = false; }
+        create => { root.channel_action("create_submit", "", 0px, 0px); }
+    }
+
+    if root.invite_open: InviteDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        channel: root.invite_channel;
+        link: root.invite_link;
+        status: root.invite_status;
+        close => { root.invite_open = false; }
+        copy => { root.channel_action("copy_invite", "", 0px, 0px); }
+    }
+
+    if root.channel_menu_open: ChannelMenu {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        menu-x: root.channel_menu_x;
+        menu-y: root.channel_menu_y;
+        channel_id: root.channel_menu_id;
+        is_voice: root.channel_menu_is_voice;
+        is_category: root.channel_menu_is_category;
+        in_server: root.channel_menu_in_server;
+        muted: root.channel_menu_muted;
+        can_manage: root.can_manage_channels;
+        can_invite: root.can_create_invite;
+        close => { root.channel_menu_open = false; }
+        action(name, id) => { root.channel_action(name, id, 0px, 0px); }
+    }
+
+    if root.channel_confirm_text != "": ConfirmDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        text: root.channel_confirm_text;
+        cancel => { root.channel_confirm_text = ""; }
+        confirm => { root.channel_action("confirm", "", 0px, 0px); }
     }
 
     if root.show_user_menu: Rectangle {

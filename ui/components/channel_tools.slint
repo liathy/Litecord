@@ -1,0 +1,542 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { AppTheme, TypeScale } from "../theme.slint";
+
+export struct ChannelInfoRow {
+    id: string,
+    title: string,
+    detail: string,
+    can_remove: bool,
+}
+
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger: false;
+    callback clicked();
+    height: 32px;
+    border-radius: 4px;
+    background: ta.has-hover ? (root.danger ? AppTheme.danger-action : AppTheme.accent) : transparent;
+    animate background { duration: 90ms; easing: ease-out; }
+    Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.text;
+        color: ta.has-hover ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-primary);
+        font-size: TypeScale.small;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 36px;
+    width: label.preferred-width + 32px;
+    border-radius: 6px;
+    opacity: root.enabled ? 1 : 0.5;
+    background: root.danger
+        ? (ta.has-hover ? AppTheme.danger-action-hover : AppTheme.danger-action)
+        : root.primary
+            ? (ta.has-hover ? AppTheme.accent-hover : AppTheme.accent)
+            : (ta.has-hover ? AppTheme.interactive-selected : AppTheme.interactive-muted);
+    animate background { duration: 90ms; easing: ease-out; }
+    label := Text {
+        text: root.text;
+        color: (root.primary || root.danger) ? AppTheme.text-on-accent : AppTheme.text-strong;
+        font-size: TypeScale.small;
+        font-weight: 600;
+    }
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            if (root.enabled) { root.clicked(); }
+        }
+    }
+}
+
+component SwitchRow inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    in-out property <bool> checked;
+    height: copy.preferred-height + 8px;
+    copy := VerticalLayout {
+        x: 0px;
+        y: 4px;
+        width: parent.width - 56px;
+        spacing: 2px;
+        Text { text: root.title; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 600; }
+        Text { text: root.detail; color: AppTheme.text-muted; font-size: TypeScale.caption; wrap: word-wrap; }
+    }
+    Rectangle {
+        x: parent.width - 40px;
+        y: (parent.height - 24px) / 2;
+        width: 40px;
+        height: 24px;
+        border-radius: 12px;
+        background: root.checked ? AppTheme.accent : AppTheme.surface-control;
+        animate background { duration: 120ms; easing: ease-out; }
+        Rectangle {
+            x: root.checked ? 18px : 2px;
+            y: 2px;
+            width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            background: AppTheme.solid-white;
+            animate x { duration: 120ms; easing: ease-out; }
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.checked = !root.checked; }
+        }
+    }
+}
+
+component FieldLabel inherits Text {
+    color: AppTheme.text-secondary;
+    font-size: TypeScale.caption;
+    font-weight: 700;
+}
+
+export component ChannelMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <string> channel_id;
+    in property <bool> is_voice;
+    in property <bool> is_category;
+    in property <bool> in_server;
+    in property <bool> muted;
+    in property <bool> can_manage;
+    in property <bool> can_invite;
+    callback close();
+    callback action(string, string);
+
+    TouchArea {
+        clicked => { root.close(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) { root.close(); }
+        }
+    }
+
+    Rectangle {
+        x: Math.max(8px, Math.min(root.menu-x, root.width - self.width - 8px));
+        y: Math.max(8px, Math.min(root.menu-y, root.height - self.height - 8px));
+        width: 220px;
+        height: list.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        TouchArea { }
+        list := VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            if !root.is_category: MenuRow { text: "Mark As Read"; clicked => { root.action("mark_read", root.channel_id); } }
+            if root.in_server && !root.is_category: MenuRow {
+                text: root.muted ? "Unmute Channel" : "Mute Channel";
+                clicked => { root.action("mute", root.channel_id); }
+            }
+            if root.is_voice: MenuRow { text: "Open Chat"; clicked => { root.action("open_chat", root.channel_id); } }
+            if root.can_invite && root.in_server && !root.is_category: MenuRow { text: "Invite People"; clicked => { root.action("invite", root.channel_id); } }
+            if root.in_server: MenuRow { text: "Copy Link"; clicked => { root.action("copy_link", root.channel_id); } }
+            if root.can_manage && root.is_category: MenuRow { text: "Create Channel"; clicked => { root.action("create", root.channel_id); } }
+            if root.can_manage: MenuRow { text: root.is_category ? "Edit Category" : "Edit Channel"; clicked => { root.action("settings", root.channel_id); } }
+            if root.can_manage: MenuRow {
+                text: root.is_category ? "Delete Category" : "Delete Channel";
+                danger: true;
+                clicked => { root.action("ask_delete", root.channel_id); }
+            }
+            MenuRow { text: "Copy Channel ID"; clicked => { root.action("copy_id", root.channel_id); } }
+        }
+    }
+}
+
+component KindRow inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    in property <image> icon;
+    in property <bool> selected;
+    callback clicked();
+    height: 58px;
+    border-radius: 6px;
+    background: root.selected ? AppTheme.interactive-selected : (ta.has-hover ? AppTheme.interactive-hover : AppTheme.surface-input);
+    animate background { duration: 90ms; easing: ease-out; }
+    Image {
+        x: 14px;
+        y: (parent.height - 20px) / 2;
+        width: 20px;
+        height: 20px;
+        source: root.icon;
+        colorize: AppTheme.text-secondary;
+    }
+    VerticalLayout {
+        x: 48px;
+        width: parent.width - 86px;
+        alignment: center;
+        spacing: 2px;
+        Text { text: root.title; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 600; }
+        Text { text: root.detail; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+    }
+    Rectangle {
+        x: parent.width - 32px;
+        y: (parent.height - 18px) / 2;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        border-width: 2px;
+        border-color: root.selected ? AppTheme.accent : AppTheme.text-muted;
+        if root.selected: Rectangle {
+            x: 4px;
+            y: 4px;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background: AppTheme.accent;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component CreateChannelDialog inherits Rectangle {
+    in property <string> category;
+    in-out property <int> kind: 0;
+    in-out property <string> name;
+    in-out property <bool> is_private;
+    in property <string> error;
+    in property <bool> busy;
+    callback close();
+    callback create();
+
+    background: AppTheme.backdrop-soft;
+    TouchArea { clicked => { root.close(); } }
+
+    Rectangle {
+        width: 460px;
+        height: box.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        TouchArea { }
+        box := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            VerticalLayout {
+                spacing: 2px;
+                Text { text: "Create Channel"; color: AppTheme.text-strong; font-size: TypeScale.heading; font-weight: 700; }
+                if root.category != "": Text { text: "in " + root.category; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+            }
+            FieldLabel { text: "CHANNEL TYPE"; }
+            VerticalLayout {
+                spacing: 6px;
+                KindRow { title: "Text"; detail: "Send messages, images, GIFs, emoji and opinions"; icon: @image-url("../../assets/message-square.svg"); selected: root.kind == 0; clicked => { root.kind = 0; } }
+                KindRow { title: "Voice"; detail: "Hang out together with voice, video and screen share"; icon: @image-url("../../assets/speaker.svg"); selected: root.kind == 2; clicked => { root.kind = 2; } }
+                KindRow { title: "Forum"; detail: "Create a space for organized discussions"; icon: @image-url("../../assets/dm-chat.svg"); selected: root.kind == 15; clicked => { root.kind = 15; } }
+            }
+            FieldLabel { text: "CHANNEL NAME"; }
+            LineEdit {
+                text <=> root.name;
+                placeholder-text: root.kind == 2 ? "New Voice Channel" : "new-channel";
+                accepted => {
+                    if (root.name != "" && !root.busy) { root.create(); }
+                }
+            }
+            SwitchRow {
+                title: "Private Channel";
+                detail: "Only you and members you allow will be able to view this channel.";
+                checked <=> root.is_private;
+            }
+            if root.error != "": Text { text: root.error; color: AppTheme.danger; font-size: TypeScale.small; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                ActionButton { text: "Cancel"; clicked => { root.close(); } }
+                ActionButton { text: root.busy ? "Creating..." : "Create Channel"; primary: true; enabled: root.name != "" && !root.busy; clicked => { root.create(); } }
+            }
+        }
+    }
+}
+
+export component InviteDialog inherits Rectangle {
+    in property <string> channel;
+    in property <string> link;
+    in property <string> status;
+    callback close();
+    callback copy();
+
+    background: AppTheme.backdrop-soft;
+    TouchArea { clicked => { root.close(); } }
+
+    Rectangle {
+        width: 440px;
+        height: box.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        TouchArea { }
+        box := VerticalLayout {
+            padding: 20px;
+            spacing: 12px;
+            Text { text: "Invite friends to #" + root.channel; color: AppTheme.text-strong; font-size: TypeScale.title; font-weight: 700; overflow: elide; }
+            FieldLabel { text: "SEND A SERVER INVITE LINK"; }
+            HorizontalLayout {
+                spacing: 8px;
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: AppTheme.surface-input;
+                    Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: parent.height;
+                        text: root.link != "" ? root.link : "Creating link...";
+                        color: root.link != "" ? AppTheme.text-primary : AppTheme.text-muted;
+                        font-size: TypeScale.small;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                ActionButton { text: "Copy"; primary: true; enabled: root.link != ""; clicked => { root.copy(); } }
+            }
+            Text {
+                text: root.status != "" ? root.status : "Your invite link expires in 7 days.";
+                color: AppTheme.text-muted;
+                font-size: TypeScale.caption;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                alignment: end;
+                ActionButton { text: "Done"; clicked => { root.close(); } }
+            }
+        }
+    }
+}
+
+component SettingsTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <bool> danger: false;
+    callback clicked();
+    height: 32px;
+    border-radius: 4px;
+    background: root.selected ? AppTheme.interactive-selected : (ta.has-hover ? AppTheme.interactive-hover : transparent);
+    animate background { duration: 90ms; easing: ease-out; }
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        color: root.danger ? AppTheme.danger : (root.selected ? AppTheme.text-strong : AppTheme.text-secondary);
+        font-size: TypeScale.body;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ChannelSettingsScreen inherits Rectangle {
+    in property <string> title;
+    in property <bool> is_voice;
+    in property <bool> is_category;
+    in-out property <string> tab: "overview";
+    in-out property <string> name;
+    in-out property <string> topic;
+    in-out property <string> slowmode;
+    in-out property <string> bitrate;
+    in-out property <bool> full_video;
+    in-out property <bool> is_private;
+    in property <string> saved_name;
+    in property <string> saved_topic;
+    in property <string> saved_slowmode;
+    in property <string> saved_bitrate;
+    in property <bool> saved_full_video;
+    in property <bool> saved_private;
+    in property <[ChannelInfoRow]> rows;
+    in property <string> status;
+    in property <string> error;
+    in property <bool> busy;
+    callback close();
+    callback pick_tab(string);
+    callback save();
+    callback reset();
+    callback ask_delete();
+    callback remove_row(string);
+
+    out property <bool> dirty: root.name != root.saved_name
+        || root.topic != root.saved_topic
+        || root.slowmode != root.saved_slowmode
+        || root.bitrate != root.saved_bitrate
+        || root.full_video != root.saved_full_video
+        || root.is_private != root.saved_private;
+
+    background: AppTheme.surface-chat;
+    TouchArea { }
+
+    HorizontalLayout {
+        Rectangle {
+            width: 240px;
+            background: AppTheme.surface-sidebar;
+            VerticalLayout {
+                padding: 16px;
+                spacing: 2px;
+                alignment: start;
+                Text {
+                    text: "#" + root.title;
+                    color: AppTheme.text-muted;
+                    font-size: TypeScale.caption;
+                    font-weight: 700;
+                    overflow: elide;
+                    height: 26px;
+                }
+                SettingsTab { text: "Overview"; selected: root.tab == "overview"; clicked => { root.pick_tab("overview"); } }
+                SettingsTab { text: "Permissions"; selected: root.tab == "permissions"; clicked => { root.pick_tab("permissions"); } }
+                if !root.is_category: SettingsTab { text: "Invites"; selected: root.tab == "invites"; clicked => { root.pick_tab("invites"); } }
+                if !root.is_category: SettingsTab { text: "Integrations"; selected: root.tab == "integrations"; clicked => { root.pick_tab("integrations"); } }
+                Rectangle { height: 9px; Rectangle { y: 4px; height: 1px; background: AppTheme.separator; } }
+                SettingsTab { text: root.is_category ? "Delete Category" : "Delete Channel"; danger: true; clicked => { root.ask_delete(); } }
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            ScrollView {
+                width: 100%;
+                height: root.dirty ? parent.height - 64px : parent.height;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    padding: 32px;
+                    spacing: 14px;
+                    alignment: start;
+
+                    Text {
+                        text: root.tab == "overview" ? "Overview" : (root.tab == "permissions" ? "Permissions" : (root.tab == "invites" ? "Invites" : "Integrations"));
+                        color: AppTheme.text-strong;
+                        font-size: TypeScale.heading;
+                        font-weight: 700;
+                    }
+
+                    if root.tab == "overview": VerticalLayout {
+                        spacing: 10px;
+                        FieldLabel { text: root.is_category ? "CATEGORY NAME" : "CHANNEL NAME"; }
+                        LineEdit { text <=> root.name; }
+                        if !root.is_voice && !root.is_category: FieldLabel { text: "CHANNEL TOPIC"; }
+                        if !root.is_voice && !root.is_category: LineEdit { text <=> root.topic; placeholder-text: "Let everyone know how to use this channel"; }
+                        if !root.is_category: FieldLabel { text: "SLOWMODE (SECONDS, 0 TO 21600)"; }
+                        if !root.is_category: LineEdit { text <=> root.slowmode; input-type: number; }
+                        if root.is_voice: FieldLabel { text: "BITRATE (KBPS)"; }
+                        if root.is_voice: LineEdit { text <=> root.bitrate; input-type: number; }
+                        if root.is_voice: SwitchRow {
+                            title: "Full Video Quality";
+                            detail: "Off uses Auto, which adapts to each viewer's connection.";
+                            checked <=> root.full_video;
+                        }
+                    }
+
+                    if root.tab == "permissions": SwitchRow {
+                        title: "Private Channel";
+                        detail: "Hides this channel from @everyone. You keep access.";
+                        checked <=> root.is_private;
+                    }
+
+                    if root.tab != "overview": VerticalLayout {
+                        spacing: 6px;
+                        if root.tab == "permissions": FieldLabel { text: "ROLES AND MEMBERS WITH CUSTOM ACCESS"; }
+                        for row in root.rows: Rectangle {
+                            height: 52px;
+                            border-radius: 6px;
+                            background: AppTheme.surface-elevated;
+                            VerticalLayout {
+                                x: 12px;
+                                width: parent.width - 110px;
+                                alignment: center;
+                                spacing: 2px;
+                                Text { text: row.title; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 600; overflow: elide; }
+                                Text { text: row.detail; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+                            }
+                            if row.can_remove: ActionButton {
+                                x: parent.width - self.width - 8px;
+                                y: 8px;
+                                text: "Revoke";
+                                danger: true;
+                                clicked => { root.remove_row(row.id); }
+                            }
+                        }
+                    }
+
+                    if root.status != "": Text { text: root.status; color: AppTheme.text-muted; font-size: TypeScale.small; wrap: word-wrap; }
+                    if root.error != "": Text { text: root.error; color: AppTheme.danger; font-size: TypeScale.small; wrap: word-wrap; }
+                }
+            }
+
+            if root.dirty: Rectangle {
+                x: 16px;
+                y: parent.height - 56px;
+                width: parent.width - 32px;
+                height: 48px;
+                border-radius: 8px;
+                background: AppTheme.surface-elevated;
+                border-width: 1px;
+                border-color: AppTheme.border-subtle;
+                Text {
+                    x: 14px;
+                    width: parent.width - 220px;
+                    height: parent.height;
+                    text: "Careful, you have unsaved changes!";
+                    color: AppTheme.text-strong;
+                    font-size: TypeScale.small;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                HorizontalLayout {
+                    x: parent.width - self.preferred-width - 6px;
+                    y: 6px;
+                    height: 36px;
+                    spacing: 6px;
+                    ActionButton { text: "Reset"; clicked => { root.reset(); } }
+                    ActionButton { text: root.busy ? "Saving..." : "Save Changes"; primary: true; enabled: !root.busy; clicked => { root.save(); } }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        x: parent.width - 52px;
+        y: 16px;
+        width: 36px;
+        height: 36px;
+        border-radius: 18px;
+        border-width: 2px;
+        border-color: AppTheme.text-muted;
+        background: close_ta.has-hover ? AppTheme.interactive-hover : transparent;
+        Image {
+            width: 16px;
+            height: 16px;
+            source: @image-url("../../assets/x.svg");
+            colorize: AppTheme.text-secondary;
+        }
+        close_ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.close(); }
+        }
+    }
+}
