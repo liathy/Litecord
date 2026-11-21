@@ -962,6 +962,7 @@ export component AppWindow inherits Window {
     callback set_stream_volume(string, float);
     callback refresh_stream_volume();
     in-out property <float> active_stream_volume: 1.0;
+    in-out property <int> active_stream_viewers: 0;
     in-out property <bool> fullscreen_volume_active: false;
     property <string> volume_watch: root.active_stream_user_id;
     changed volume_watch => { root.refresh_stream_volume(); }
@@ -4845,7 +4846,7 @@ export component AppWindow inherits Window {
             image-fit: contain;
         }
         pip_ta := TouchArea {
-            mouse-cursor: self.pressed && root.pip_dragging ? MouseCursor.grabbing : MouseCursor.pointer;
+            mouse-cursor: self.pressed && root.pip_dragging ? MouseCursor.grabbing : MouseCursor.default;
             pointer-event(event) => {
                 if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
                     root.pip_dragging = false;
@@ -4862,9 +4863,10 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-            clicked => {
-                if (!root.pip_dragging) { root.toggle_voice_focus(); }
+            clicked => { root.pip_dragging = false; }
+            double-clicked => {
                 root.pip_dragging = false;
+                root.toggle_voice_focus();
             }
         }
         if pip_ta.has-hover || pip_back_ta.has-hover || pip_pop_ta.has-hover || pip_stop_ta.has-hover: Rectangle {
@@ -4875,7 +4877,7 @@ export component AppWindow inherits Window {
         Text {
             x: 10px;
             y: parent.height - 26px;
-            width: parent.width - 110px;
+            width: parent.width - 150px;
             text: root.active_stream_user;
             color: AppTheme.solid-white;
             font-size: TypeScale.small;
@@ -4891,6 +4893,38 @@ export component AppWindow inherits Window {
             background: pip_back_ta.has-hover ? AppTheme.backdrop-max : AppTheme.backdrop;
             Image { width: 16px; height: 16px; source: @image-url("../assets/arrow-left.svg"); colorize: AppTheme.solid-white; }
             pip_back_ta := TouchArea { mouse-cursor: pointer; clicked => { root.toggle_voice_focus(); } }
+        }
+        Text {
+            x: 38px;
+            y: 6px;
+            width: parent.width - 46px;
+            height: 26px;
+            text: root.current_voice_channel;
+            color: AppTheme.solid-white;
+            font-size: TypeScale.small;
+            font-weight: 700;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.active_stream_viewers > 0: Rectangle {
+            x: parent.width - 66px - self.width - 4px;
+            y: parent.height - 32px;
+            width: pip_viewers.preferred-width + 30px;
+            height: 26px;
+            border-radius: 4px;
+            background: AppTheme.backdrop;
+            accessible-role: text;
+            accessible-label: root.active_stream_viewers + " watching";
+            Image { x: 5px; y: 5px; width: 16px; height: 16px; source: @image-url("../assets/eye.svg"); colorize: AppTheme.solid-white; }
+            pip_viewers := Text {
+                x: 24px;
+                height: parent.height;
+                text: root.active_stream_viewers;
+                color: AppTheme.solid-white;
+                font-size: TypeScale.small;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
         }
         Rectangle {
             x: parent.width - 66px;

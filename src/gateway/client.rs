@@ -198,6 +198,7 @@ const HANDLED_EVENTS: &[&str] = &[
     "STREAM_CREATE",
     "STREAM_SERVER_UPDATE",
     "STREAM_DELETE",
+    "STREAM_UPDATE",
     "GUILD_MEMBER_LIST_UPDATE",
     "USER_GUILD_SETTINGS_UPDATE",
 ];
@@ -1653,6 +1654,7 @@ impl GatewayClient {
                     }
                 }
                 "STREAM_CREATE" => {
+                    crate::ui::voice_flags::on_stream_event(&v["d"]);
                     let stream_key = v["d"]["stream_key"].as_str().unwrap_or("").to_string();
                     let rtc_server_id = v["d"]["rtc_server_id"]
                         .as_str()
@@ -1782,6 +1784,7 @@ impl GatewayClient {
                     crate::ui::notifications::update_settings(&v["d"]);
                 }
                 "PRESENCE_UPDATE" => crate::ui::presence::on_event(&v["d"]),
+                "STREAM_UPDATE" => crate::ui::voice_flags::on_stream_event(&v["d"]),
                 "GUILD_MEMBER_LIST_UPDATE" => {
                     if let Some(guild_id) = v["d"]["guild_id"].as_str() {
                         let _ = self.event_tx.send(GatewayEvent::MemberListUpdated {

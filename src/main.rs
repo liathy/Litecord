@@ -1692,6 +1692,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui) = app_weak_stream_vol_sync.upgrade() {
             if let Ok(uid) = ui.get_active_stream_user_id().parse::<u64>() {
                 ui.set_active_stream_volume(screen_capture::audio_loopback::get_stream_volume(uid).clamp(0.0, 1.0));
+                crate::ui::voice_flags::show_stream_viewers(&ui);
             }
         }
     });

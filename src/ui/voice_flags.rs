@@ -8,6 +8,36 @@ use slint::Model;
 use crate::AppWindow;
 
 static MUTED_BEFORE_DEAFEN: AtomicBool = AtomicBool::new(false);
+static STREAM_VIEWERS: std::sync::Mutex<Option<std::collections::HashMap<u64, i32>>> = std::sync::Mutex::new(None);
+
+/// The streamer of `guild:<id>:<channel>:<user>` or `call:<channel>:<user>`.
+fn stream_owner(key: &str) -> Option<u64> {
+    key.rsplit(':').next()?.parse().ok()
+}
+
+/// STREAM_CREATE and STREAM_UPDATE carry who is watching.
+pub fn on_stream_event(data: &serde_json::Value) {
+    let (Some(owner), Some(viewers)) = (data["stream_key"].as_str().and_then(stream_owner), data["viewer_ids"].as_array()) else { return };
+    STREAM_VIEWERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(std::collections::HashMap::new)
+        .insert(owner, viewers.len() as i32);
+    crate::ui::presence::schedule_refresh();
+}
+
+pub fn show_stream_viewers(ui: &AppWindow) {
+    let owner = ui.get_active_stream_user_id().parse::<u64>().unwrap_or(0);
+    let count = STREAM_VIEWERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(&owner).copied())
+        .unwrap_or(0);
+    if ui.get_active_stream_viewers() != count {
+        ui.set_active_stream_viewers(count);
+    }
+}
 
 fn next_mute(muted: bool, deafened: bool) -> (bool, bool) {
     if deafened {
@@ -59,6 +89,13 @@ pub fn show_stream_volume(ui: &AppWindow, user_id: &str, volume: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_streamer_from_a_stream_key() {
+        assert_eq!(stream_owner("guild:1:2:33"), Some(33));
+        assert_eq!(stream_owner("call:2:44"), Some(44));
+        assert_eq!(stream_owner("bad"), None);
+    }
 
     #[test]
     fn deafening_also_mutes_and_undeafening_restores_an_open_mic() {

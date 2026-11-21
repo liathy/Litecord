@@ -75,6 +75,7 @@ pub(crate) fn schedule_refresh() {
         if let Some(ui) = app.upgrade() {
             refresh_dms(&ui);
             crate::ui::channel_tools::apply_mutes(&ui);
+            crate::ui::voice_flags::show_stream_viewers(&ui);
             crate::ui::guild_folders::refresh_mutes(&ui);
         }
     });
