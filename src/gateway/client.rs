@@ -195,6 +195,7 @@ const HANDLED_EVENTS: &[&str] = &[
     "STREAM_SERVER_UPDATE",
     "STREAM_DELETE",
     "GUILD_MEMBER_LIST_UPDATE",
+    "USER_GUILD_SETTINGS_UPDATE",
 ];
 
 /// Events that change what the user may see in a server. They only drop the server's
@@ -362,6 +363,8 @@ struct StrictReadyData<'a> {
     guilds: Vec<StrictReadyGuild<'a>>,
     #[serde(default, borrow)]
     private_channels: Vec<StrictReadyPrivateChannel<'a>>,
+    #[serde(default)]
+    user_guild_settings: Value,
 }
 
 #[derive(serde::Deserialize)]
@@ -1070,6 +1073,7 @@ impl GatewayClient {
     }
 
     async fn handle_strict_ready(&self, d: StrictReadyData<'_>) {
+        crate::ui::notifications::load_settings(&d.user_guild_settings);
         let uid_str = d.user.id.to_string();
         *self.user_id.lock().unwrap() = Some(uid_str.clone());
         let uid_num = uid_str.parse::<u64>().unwrap_or(0);
@@ -1203,6 +1207,7 @@ impl GatewayClient {
                     *self.user_id.lock().unwrap() = Some(uid.clone());
                     let uid_num = uid.parse::<u64>().unwrap_or(0);
                     crate::native_video::sender::set_premium_type(v["d"]["user"]["premium_type"].as_u64().unwrap_or(0) as u8);
+                    crate::ui::notifications::load_settings(&v["d"]["user_guild_settings"]);
 
                     let username = v["d"]["user"]["username"].as_str().unwrap_or("User");
                     let global_name = v["d"]["user"]["global_name"].as_str().unwrap_or(username);
@@ -1501,6 +1506,9 @@ impl GatewayClient {
                         if let Some(ref my_cid) = my_voice_chan {
                             if event_chan.as_deref() == Some(my_cid.as_str()) {
                                 info!("👥 [VOICE CHANNEL JOIN] Usuário {} ({}) entrou no nosso canal de voz!", event_uid, display_name);
+                                if previous_chan.as_deref() != Some(my_cid.as_str()) && event_uid != get_my_user_id() {
+                                    crate::audio::sound_effects::play_ui_sound(crate::audio::sound_effects::UiSound::JoinChannel);
+                                }
                                 register_voice_participant(event_uid as u32, event_uid);
                                 let self_stream = v["d"]["self_stream"].as_bool().unwrap_or(false);
                                 let self_video = v["d"]["self_video"].as_bool().unwrap_or(false);
@@ -1525,6 +1533,9 @@ impl GatewayClient {
                                 // in our channel left it.
                                 if previous_chan.as_deref() == Some(my_cid.as_str()) {
                                     info!("👥 [VOICE CHANNEL LEAVE] Usuário {} saiu do nosso canal de voz!", event_uid);
+                                    if event_uid != get_my_user_id() {
+                                        crate::audio::sound_effects::play_ui_sound(crate::audio::sound_effects::UiSound::LeaveChannel);
+                                    }
                                     crate::screen_capture::types::set_peer_streaming(event_uid, false);
                                 }
                                 remove_voice_participant_by_user_id(event_uid);
@@ -1743,6 +1754,9 @@ impl GatewayClient {
                         });
                     }
                 }
+                "USER_GUILD_SETTINGS_UPDATE" => {
+                    crate::ui::notifications::update_settings(&v["d"]);
+                }
                 "GUILD_MEMBER_LIST_UPDATE" => {
                     if let Some(guild_id) = v["d"]["guild_id"].as_str() {
                         let _ = self.event_tx.send(GatewayEvent::MemberListUpdated {
@@ -1801,6 +1815,7 @@ impl GatewayClient {
                     let created_at = v["d"]["timestamp"].as_str().unwrap_or("").to_string();
                     let avatar_url = crate::ui::message_grouping::avatar_url_for_message(&v["d"]);
                     let is_bot = v["d"]["author"]["bot"].as_bool().unwrap_or(false);
+                    crate::ui::notifications::on_message(&v["d"], &my_uid, &author, &content);
 
                     let _ = self.event_tx.send(GatewayEvent::MessageCreated {
                         id,

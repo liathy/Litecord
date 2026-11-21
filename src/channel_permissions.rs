@@ -65,6 +65,11 @@ impl ChannelPermissions {
         })
     }
 
+    /// A server-wide permission of the account. Discord still checks role order.
+    pub fn has_permission(&self, permission: u64) -> bool {
+        self.bypass || self.base & permission != 0
+    }
+
     pub fn has_feature(&self, feature: &str) -> bool {
         self.features.iter().any(|f| f == feature)
     }

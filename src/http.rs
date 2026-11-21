@@ -430,6 +430,42 @@ impl DiscordHttpClient {
         self.get_user_profile(user_id).await
     }
 
+    /// Opens (or finds) the DM with a user and returns its channel id.
+    pub async fn open_dm(&self, user_id: &str) -> Result<String, String> {
+        let url = "https://discord.com/api/v9/users/@me/channels";
+        let resp = self.client.post(url).json(&json!({ "recipients": [user_id] })).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Status HTTP {}", resp.status()));
+        }
+        let channel: serde_json::Value = resp.json().await.map_err(|e| format!("JSON: {:?}", e))?;
+        channel["id"].as_str().map(str::to_owned).ok_or_else(|| "Missing channel id".to_string())
+    }
+
+    async fn moderation_result(result: Result<reqwest::Response, reqwest::Error>) -> Result<(), String> {
+        let response = result.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        match response.status().as_u16() {
+            200..=299 => Ok(()),
+            403 => Err("Discord refused: missing permission or role too low".to_string()),
+            code => Err(format!("Discord error {code}")),
+        }
+    }
+
+    /// Server mute, server deafen, or disconnecting from voice (`channel_id: null`).
+    pub async fn update_member(&self, guild_id: &str, user_id: &str, change: serde_json::Value) -> Result<(), String> {
+        let url = format!("https://discord.com/api/v9/guilds/{}/members/{}", guild_id, user_id);
+        Self::moderation_result(self.client.patch(&url).json(&change).send().await).await
+    }
+
+    pub async fn kick_member(&self, guild_id: &str, user_id: &str) -> Result<(), String> {
+        let url = format!("https://discord.com/api/v9/guilds/{}/members/{}", guild_id, user_id);
+        Self::moderation_result(self.client.delete(&url).send().await).await
+    }
+
+    pub async fn ban_member(&self, guild_id: &str, user_id: &str) -> Result<(), String> {
+        let url = format!("https://discord.com/api/v9/guilds/{}/bans/{}", guild_id, user_id);
+        Self::moderation_result(self.client.put(&url).json(&json!({})).send().await).await
+    }
+
     /// The server's roles, for member colors and role groups.
     pub async fn get_guild_roles(&self, guild_id: &str) -> Result<Vec<crate::ui::member_list::Role>, String> {
         let url = format!("https://discord.com/api/v10/guilds/{}", guild_id);

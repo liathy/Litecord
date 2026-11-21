@@ -13,6 +13,7 @@ pub enum UiSound {
     Undeafen,
     JoinChannel,
     LeaveChannel,
+    Message,
 }
 
 static SOUND_SENDER: std::sync::OnceLock<SyncSender<UiSound>> = std::sync::OnceLock::new();
@@ -190,6 +191,19 @@ fn generate_sound_samples(sound: UiSound, sample_rate: u32) -> Vec<f32> {
                     (phase2.sin() + 0.18 * (phase2 * 2.0).sin()) * 0.80 * attack * decay
                 };
                 samples.push(wave);
+            }
+        }
+        UiSound::Message => {
+            // Short soft two-note ping (~150 ms)
+            let total = (sample_rate as f32 * 0.15) as usize;
+            let split = total / 3;
+            let mut phase = 0.0f32;
+            for i in 0..total {
+                let t = i as f32 / total as f32;
+                let freq = if i < split { 880.0 } else { 1175.0 };
+                phase += 2.0 * std::f32::consts::PI * freq * dt;
+                let attack = (i as f32 / (sample_rate as f32 * 0.004)).min(1.0);
+                samples.push(phase.sin() * 0.45 * attack * (-t * 4.0).exp());
             }
         }
         UiSound::LeaveChannel => {

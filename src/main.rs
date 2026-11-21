@@ -4040,6 +4040,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui) = app_weak_members.upgrade() {
             let http = http_members.lock().unwrap().as_ref().cloned();
             let tx = cmd_tx_members.lock().unwrap().as_ref().cloned();
+            crate::ui::notifications::set_open_channel(&ui.get_active_channel_id());
             crate::ui::member_list::context_changed(&ui, http, tx);
         }
     });
@@ -4054,6 +4055,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ui) = app_weak_profile.upgrade() {
             let http = http_profile.lock().unwrap().as_ref().cloned();
             crate::ui::member_list::open_profile(&ui, http, user_id.to_string());
+        }
+    });
+
+    let app_weak_user_menu = app_weak.clone();
+    let http_user_menu = Arc::clone(&http_client);
+    app.on_open_user_menu(move |row_id: SharedString, x: f32, y: f32| {
+        if let Some(ui) = app_weak_user_menu.upgrade() {
+            let http = http_user_menu.lock().unwrap().as_ref().cloned();
+            crate::ui::user_menu::open(&ui, http, &row_id, x, y);
+        }
+    });
+    let app_weak_user_action = app_weak.clone();
+    let http_user_action = Arc::clone(&http_client);
+    let active_channel_user_action = Arc::clone(&active_channel_id);
+    app.on_user_menu_action(move |name: SharedString| {
+        if let Some(ui) = app_weak_user_action.upgrade() {
+            let http = http_user_action.lock().unwrap().as_ref().cloned();
+            crate::ui::user_menu::action(&ui, http, Arc::clone(&active_channel_user_action), &name);
         }
     });
 

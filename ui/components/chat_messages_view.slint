@@ -120,6 +120,7 @@ export component ChatMessagesView inherits Rectangle {
     }
 
     callback open_profile(string);
+    callback open_user_menu(string, length, length);
 
     public function is_at_bottom() -> bool {
         (msg_scroll.viewport-height - msg_scroll.visible-height) + scroll_y > -24px;
@@ -256,7 +257,12 @@ export component ChatMessagesView inherits Rectangle {
                     }
                     TouchArea {
                         mouse-cursor: pointer;
-                        clicked => { root.open_profile(msg.author_id); }
+                        pointer-event(event) => {
+                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                        root.open_user_menu(msg.author_id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                    }
+                }
+                clicked => { root.open_profile(msg.author_id); }
                     }
                 }
 

@@ -1,4 +1,4 @@
-import { ListView, ScrollView } from "std-widgets.slint";
+import { ListView, ScrollView, Slider } from "std-widgets.slint";
 import { AppTheme, TypeScale } from "../theme.slint";
 import { Tr } from "tr.slint";
 
@@ -27,6 +27,7 @@ export component MemberListPanel inherits Rectangle {
     in property <[image]> avatar_pool;
     in property <[string]> avatar_pool_urls;
     callback open_profile(string);
+    callback open_user_menu(string, length, length);
     callback scrolled(int);
 
     background: AppTheme.surface-sidebar;
@@ -138,6 +139,11 @@ export component MemberListPanel inherits Rectangle {
             row_ta := TouchArea {
                 enabled: !row.is_group && row.is_loaded;
                 mouse-cursor: self.enabled ? pointer : default;
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                        root.open_user_menu(row.user_id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                    }
+                }
                 clicked => { root.open_profile(row.user_id); }
             }
         }
@@ -302,6 +308,218 @@ export component ProfileCard inherits Rectangle {
                             overflow: elide;
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger: false;
+    in property <bool> has-check: false;
+    in property <bool> checked: false;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 4px;
+    background: row_ta.has-hover ? (root.danger ? AppTheme.danger-action : AppTheme.interactive-selected) : transparent;
+
+    Text {
+        x: 10px;
+        width: parent.width - 44px;
+        height: parent.height;
+        text: root.text;
+        color: row_ta.has-hover && root.danger ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-primary);
+        font-size: TypeScale.small;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    if root.has-check: Rectangle {
+        x: parent.width - 28px;
+        y: 7px;
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: root.checked ? AppTheme.accent : AppTheme.text-muted;
+        background: root.checked ? AppTheme.accent : transparent;
+        if root.checked: Text {
+            text: "✓";
+            color: AppTheme.text-on-accent;
+            font-size: TypeScale.caption;
+            font-weight: 800;
+        }
+    }
+
+    row_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component MenuLine inherits Rectangle {
+    height: 9px;
+    Rectangle {
+        y: 4px;
+        height: 1px;
+        background: AppTheme.separator;
+    }
+}
+
+export component UserContextMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <string> name;
+    in property <bool> is_self;
+    in property <bool> in_voice;
+    in-out property <float> volume;
+    in-out property <bool> muted;
+    in property <bool> server_muted;
+    in property <bool> server_deafened;
+    in property <bool> can_mute;
+    in property <bool> can_deafen;
+    in property <bool> can_move;
+    in property <bool> can_kick;
+    in property <bool> can_ban;
+    in-out property <string> confirm;
+    in property <string> error;
+    callback close();
+    callback action(string);
+    callback volume_changed(float);
+    callback toggle_mute();
+
+    property <bool> has_moderation: (root.in_voice && (root.can_mute || root.can_deafen || root.can_move)) || root.can_kick || root.can_ban;
+
+    TouchArea {
+        clicked => { root.close(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.close();
+            }
+        }
+    }
+
+    menu := Rectangle {
+        width: 230px;
+        height: Math.min(items.preferred-height, root.height - 16px);
+        x: Math.max(8px, Math.min(root.menu-x, root.width - self.width - 8px));
+        y: Math.max(8px, Math.min(root.menu-y, root.height - self.height - 8px));
+        background: AppTheme.surface-elevated;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        clip: true;
+
+        TouchArea { }
+
+        items := VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            alignment: start;
+
+            if root.confirm != "": VerticalLayout {
+                spacing: 8px;
+                padding: 6px;
+                Text {
+                    text: (root.confirm == "kick" ? "Kick " : (root.confirm == "ban" ? "Ban " : "Disconnect ")) + root.name + "?";
+                    color: AppTheme.text-strong;
+                    font-size: TypeScale.body;
+                    font-weight: 700;
+                    wrap: word-wrap;
+                }
+                MenuRow {
+                    text: root.confirm == "kick" ? "Yes, kick" : (root.confirm == "ban" ? "Yes, ban" : "Yes, disconnect");
+                    danger: true;
+                    clicked => { root.action(root.confirm); }
+                }
+                MenuRow {
+                    text: "Cancel";
+                    clicked => { root.confirm = ""; }
+                }
+            }
+
+            if root.confirm == "": VerticalLayout {
+                spacing: 1px;
+
+                MenuRow { text: "Profile"; clicked => { root.action("profile"); } }
+                MenuRow { text: "Mention"; clicked => { root.action("mention"); } }
+                if !root.is_self: MenuRow { text: "Message"; clicked => { root.action("message"); } }
+
+                if !root.is_self: MenuLine { }
+                if !root.is_self: VerticalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 2px;
+                    Text {
+                        text: "User Volume  " + Math.round(root.volume * 100) + "%";
+                        color: AppTheme.text-primary;
+                        font-size: TypeScale.small;
+                        font-weight: 500;
+                    }
+                    Slider {
+                        minimum: 0.0;
+                        maximum: 2.0;
+                        value: root.volume;
+                        changed(val) => {
+                            root.volume = val;
+                            root.volume_changed(val);
+                        }
+                    }
+                }
+                if !root.is_self: MenuRow {
+                    text: "Mute";
+                    has-check: true;
+                    checked: root.muted;
+                    clicked => {
+                        root.muted = !root.muted;
+                        root.toggle_mute();
+                    }
+                }
+
+                if root.has_moderation: MenuLine { }
+                if root.in_voice && root.can_mute: MenuRow {
+                    text: "Server Mute";
+                    danger: true;
+                    has-check: true;
+                    checked: root.server_muted;
+                    clicked => { root.action("server_mute"); }
+                }
+                if root.in_voice && root.can_deafen: MenuRow {
+                    text: "Server Deafen";
+                    danger: true;
+                    has-check: true;
+                    checked: root.server_deafened;
+                    clicked => { root.action("server_deafen"); }
+                }
+                if root.in_voice && root.can_move: MenuRow {
+                    text: "Disconnect";
+                    danger: true;
+                    clicked => { root.confirm = "disconnect"; }
+                }
+                if root.can_kick: MenuRow {
+                    text: "Kick " + root.name;
+                    danger: true;
+                    clicked => { root.confirm = "kick"; }
+                }
+                if root.can_ban: MenuRow {
+                    text: "Ban " + root.name;
+                    danger: true;
+                    clicked => { root.confirm = "ban"; }
+                }
+
+                MenuLine { }
+                MenuRow { text: "Copy User ID"; clicked => { root.action("copy_id"); } }
+
+                if root.error != "": Text {
+                    text: root.error;
+                    color: AppTheme.danger;
+                    font-size: TypeScale.caption;
+                    wrap: word-wrap;
                 }
             }
         }

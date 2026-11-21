@@ -91,6 +91,7 @@ export component ChannelSidebar inherits Rectangle {
     callback open_camera_modal();
     callback toggle_screen_share();
     callback open_voice_room();
+    callback open_user_menu(string, length, length);
     callback open_voice_chat();
     in property <bool> is_voice_focused;
     callback toggle_user_menu();
@@ -434,6 +435,9 @@ export component ChannelSidebar inherits Rectangle {
                         touch_area := TouchArea {
                             mouse-cursor: pointer;
                             pointer-event(event) => {
+                                if (channel.is_voice_member && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                    root.open_user_menu(channel.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                }
                                 if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                                     if (root.dragging_channel_idx >= 0 && root.drop_target_channel_idx >= 0 && root.dragging_channel_idx != root.drop_target_channel_idx) {
                                         root.reorder_channel(root.dragging_channel_idx, root.drop_target_channel_idx);
