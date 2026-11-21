@@ -90,6 +90,8 @@ fn parse_item(item: &Value) -> Option<Entry> {
 #[derive(Default)]
 pub struct MemberRows {
     entries: Vec<Option<Entry>>,
+    /// Discord's id of the list on screen. Channels with the same permissions share one.
+    list_id: String,
 }
 
 impl MemberRows {
@@ -105,6 +107,16 @@ impl MemberRows {
 
     /// Applies a GUILD_MEMBER_LIST_UPDATE.
     pub fn apply(&mut self, update: &Value) {
+        let list_id = update["id"].as_str().unwrap_or("");
+        if list_id != self.list_id {
+            // A full list replaces this one; anything else is the previous channel's list.
+            let has_rows = update["ops"].as_array().into_iter().flatten().any(|op| op["op"] == "SYNC");
+            if !has_rows {
+                return;
+            }
+            self.entries.clear();
+            self.list_id = list_id.to_owned();
+        }
         for op in update["ops"].as_array().into_iter().flatten() {
             let index = op["index"].as_u64().map(|i| i as usize);
             let start = op["range"][0].as_u64().unwrap_or(0) as usize;
@@ -373,9 +385,12 @@ pub fn context_changed(
     let keep_roles = wanted && previous == guild;
     with_state(|state| {
         let roles = std::mem::take(&mut state.roles);
+        let rows = std::mem::take(&mut state.rows);
         *state = State::default();
         if keep_roles {
             state.roles = roles;
+            // Discord sends no new rows when the next channel shares this list.
+            state.rows = rows;
         }
         if wanted {
             state.guild = guild.clone();
@@ -541,6 +556,24 @@ mod tests {
         assert_eq!(ids(&rows), ["z", "b"]);
         rows.apply(&json!({ "ops": [{ "op": "INVALIDATE", "range": [0, 99] }] }));
         assert_eq!(ids(&rows), ["-", "-"]);
+    }
+
+    #[test]
+    fn a_new_list_replaces_the_rows_and_the_old_list_is_ignored() {
+        let mut rows = MemberRows::default();
+        rows.apply(&json!({ "id": "one", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("a"), member("b")] }] }));
+        rows.apply(&json!({ "id": "two", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("c")] }] }));
+        assert_eq!(ids(&rows), ["c"]);
+        rows.apply(&json!({ "id": "one", "ops": [{ "op": "INVALIDATE", "range": [0, 99] }] }));
+        assert_eq!(ids(&rows), ["c"]);
+    }
+
+    #[test]
+    fn updates_of_the_list_on_screen_still_apply() {
+        let mut rows = MemberRows::default();
+        rows.apply(&json!({ "id": "one", "ops": [{ "op": "SYNC", "range": [0, 99], "items": [member("a")] }] }));
+        rows.apply(&json!({ "id": "one", "ops": [{ "op": "UPDATE", "index": 0, "item": member("z") }] }));
+        assert_eq!(ids(&rows), ["z"]);
     }
 
     #[test]
