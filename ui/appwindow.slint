@@ -37,6 +37,12 @@ export struct EmojiRow {
     emojis: [EmojiPickerItem],
 }
 
+export struct PendingFile {
+    path: string,
+    name: string,
+    size: string,
+}
+
 export struct GifItem {
     url: string,
     title: string,
@@ -361,6 +367,11 @@ export component AppWindow inherits Window {
     }
     callback emoji_picker_opened();
     callback open_gif_picker();
+    callback pick_files();
+    callback remove_pending_file(int);
+    in-out property <[PendingFile]> pending_files: [];
+    in-out property <bool> file_uploading: false;
+    in-out property <string> file_upload_error: "";
     callback search_gifs(string);
     in-out property <bool> show_gif_picker: false;
     in-out property <string> gif_tab: "favorites";
@@ -3375,6 +3386,85 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    // Files waiting to be sent with the next message
+                    if root.pending_files.length > 0 || root.file_upload_error != "": Rectangle {
+                        height: root.pending_files.length > 0 ? (root.file_upload_error != "" || root.file_uploading ? 84px : 64px) : 28px;
+                        background: AppTheme.surface-sidebar;
+
+                        VerticalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 6px;
+                            padding-bottom: 4px;
+                            spacing: 3px;
+
+                            if root.pending_files.length > 0: ScrollView {
+                                height: 52px;
+                                viewport-width: file_row.preferred-width;
+                                viewport-height: 50px;
+
+                                file_row := HorizontalLayout {
+                                    spacing: 6px;
+                                    alignment: start;
+
+                                    for file[index] in root.pending_files: Rectangle {
+                                        width: 180px;
+                                        height: 48px;
+                                        border-radius: 6px;
+                                        background: AppTheme.surface-elevated;
+                                        border-width: 1px;
+                                        border-color: AppTheme.border-subtle;
+
+                                        VerticalLayout {
+                                            x: 10px;
+                                            width: parent.width - 40px;
+                                            alignment: center;
+                                            spacing: 1px;
+                                            Text {
+                                                text: file.name;
+                                                color: AppTheme.text-strong;
+                                                font-size: TypeScale.small;
+                                                font-weight: 600;
+                                                overflow: elide;
+                                            }
+                                            Text {
+                                                text: file.size;
+                                                color: AppTheme.text-muted;
+                                                font-size: TypeScale.micro;
+                                            }
+                                        }
+
+                                        if !root.file_uploading: Rectangle {
+                                            x: parent.width - 26px;
+                                            y: 14px;
+                                            width: 20px;
+                                            height: 20px;
+                                            border-radius: 10px;
+                                            background: remove_file_ta.has-hover ? AppTheme.danger-action : AppTheme.interactive-muted;
+                                            Image {
+                                                source: @image-url("../assets/x.svg");
+                                                width: 10px;
+                                                height: 10px;
+                                                colorize: AppTheme.text-strong;
+                                            }
+                                            remove_file_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { root.remove_pending_file(index); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.file_uploading || root.file_upload_error != "": Text {
+                                text: root.file_uploading ? Tr.uploading_files : root.file_upload_error;
+                                color: root.file_uploading ? AppTheme.text-muted : AppTheme.danger;
+                                font-size: TypeScale.caption;
+                                overflow: elide;
+                            }
+                        }
+                    }
+
                     // GIF picker
                     if root.show_gif_picker : Rectangle {
                         height: 340px;
@@ -3748,6 +3838,31 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                            // Attach files
+                            Rectangle {
+                                width: 34px;
+                                height: 34px;
+                                border-radius: 6px;
+                                background: attach_btn_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                animate background { duration: 120ms; }
+
+                                Image {
+                                    x: 9px;
+                                    y: 9px;
+                                    width: 16px;
+                                    height: 16px;
+                                    source: @image-url("../assets/plus.svg");
+                                    colorize: attach_btn_ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary;
+                                    image-fit: contain;
+                                }
+
+                                attach_btn_ta := TouchArea {
+                                    enabled: !root.file_uploading;
+                                    mouse-cursor: pointer;
+                                    clicked => { root.pick_files(); }
+                                }
+                            }
+
                             if root.active_command_name == "" : Rectangle {
                                 horizontal-stretch: 1;
                                 background: AppTheme.surface-input;
@@ -3805,7 +3920,7 @@ export component AppWindow inherits Window {
                                     accepted => {
                                         if (root.show_command_suggestions && root.command_suggestions.length > 0) {
                                             root.select_suggestion(root.active_suggestion_index);
-                                        } else if (root.chat_input_text != "") {
+                                        } else if ((root.chat_input_text != "" || root.pending_files.length > 0) && !root.file_uploading) {
                                             root.send_message(root.chat_input_text);
                                             root.chat_input_text = "";
                                             root.show_command_suggestions = false;
@@ -3916,7 +4031,7 @@ export component AppWindow inherits Window {
                                         root.command_arg_text = "";
                                     } else if (root.show_command_suggestions && root.command_suggestions.length > 0) {
                                         root.select_suggestion(root.active_suggestion_index);
-                                    } else if (root.chat_input_text != "") {
+                                    } else if ((root.chat_input_text != "" || root.pending_files.length > 0) && !root.file_uploading) {
                                         root.send_message(root.chat_input_text);
                                         root.chat_input_text = "";
                                         root.show_command_suggestions = false;

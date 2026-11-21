@@ -4421,14 +4421,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
+    let app_weak_pick_files = app_weak.clone();
+    app.on_pick_files(move || {
+        if let Some(ui) = app_weak_pick_files.upgrade() {
+            crate::ui::file_upload::pick(&ui);
+        }
+    });
+    let app_weak_remove_file = app_weak.clone();
+    app.on_remove_pending_file(move |index| {
+        if let Some(ui) = app_weak_remove_file.upgrade() {
+            crate::ui::file_upload::remove(&ui, index.max(0) as usize);
+        }
+    });
+
     // Send Message Callback from UI
     let http_client_msg = Arc::clone(&http_client);
     let active_channel_msg = Arc::clone(&active_channel_id);
+    let app_weak_msg = app_weak.clone();
     app.on_send_message(move |content: SharedString| {
         let content_str = content.to_string();
         let channel_id = active_channel_msg.lock().unwrap().clone();
         invalidate_message_cache(&channel_id);
         let http_opt = http_client_msg.lock().unwrap().as_ref().cloned();
+
+        if let Some(ui) = app_weak_msg.upgrade() {
+            if ui.get_pending_files().row_count() > 0 {
+                crate::ui::file_upload::send(&ui, http_opt, channel_id, content_str);
+                return;
+            }
+        }
 
         if let Some(http) = http_opt {
             tokio::spawn(async move {

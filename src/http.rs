@@ -2,6 +2,56 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::json;
 use log::{info, warn, error};
 
+/// Where one file of a message goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UploadTarget {
+    pub id: String,
+    pub filename: String,
+    pub upload_url: String,
+    pub upload_filename: String,
+}
+
+/// Discord's answer to an upload request, in the order the files were asked for.
+fn parse_upload_targets(body: &serde_json::Value, names: &[String]) -> Result<Vec<UploadTarget>, String> {
+    let entries = body["attachments"].as_array().ok_or("Upload answer without attachments")?;
+    entries
+        .iter()
+        .zip(names)
+        .map(|(entry, name)| {
+            let upload_url = entry["upload_url"].as_str().ok_or("Upload answer without a link")?;
+            if !upload_url.starts_with("https://") {
+                return Err("Upload link is not HTTPS".to_string());
+            }
+            Ok(UploadTarget {
+                id: entry["id"].as_u64().map(|id| id.to_string())
+                    .or_else(|| entry["id"].as_str().map(str::to_owned))
+                    .ok_or("Upload answer without an id")?,
+                filename: name.clone(),
+                upload_url: upload_url.to_owned(),
+                upload_filename: entry["upload_filename"].as_str().ok_or("Upload answer without a file name")?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Sends a file to its signed link, with the shared client: the storage host never
+/// receives the account token.
+pub async fn put_upload(url: &str, bytes: Vec<u8>) -> Result<(), String> {
+    let response = crate::utils::network_settings::shared_http_client()
+        .put(url)
+        .timeout(std::time::Duration::from_secs(900))
+        .header(CONTENT_TYPE, "application/octet-stream")
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("upload failed: {e}"))?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("upload failed (HTTP {})", response.status().as_u16()))
+    }
+}
+
 #[derive(Clone)]
 pub struct DiscordHttpClient {
     client: reqwest::Client,
@@ -430,6 +480,45 @@ impl DiscordHttpClient {
         self.get_user_profile(user_id).await
     }
 
+    /// Asks Discord for one upload link per file; refuses here if a file is over the limit.
+    pub async fn request_upload_urls(&self, channel_id: &str, files: &[(String, u64)]) -> Result<Vec<UploadTarget>, String> {
+        let url = format!("https://discord.com/api/v9/channels/{}/attachments", channel_id);
+        let list: Vec<serde_json::Value> = files
+            .iter()
+            .enumerate()
+            .map(|(index, (name, size))| json!({ "id": index.to_string(), "filename": name, "file_size": size }))
+            .collect();
+        let resp = self.client.post(&url).json(&json!({ "files": list })).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        if status.as_u16() == 413 || body["code"].as_u64() == Some(40005) {
+            return Err("File is too large for this server or your plan".to_string());
+        }
+        if status.as_u16() == 403 {
+            return Err("You can't send files in this channel".to_string());
+        }
+        if !status.is_success() {
+            return Err(format!("Discord error {}", status.as_u16()));
+        }
+        let names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
+        parse_upload_targets(&body, &names)
+    }
+
+    pub async fn send_message_with_files(&self, channel_id: &str, content: &str, files: &[UploadTarget]) -> Result<(), String> {
+        let url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
+        let attachments: Vec<serde_json::Value> = files
+            .iter()
+            .map(|file| json!({ "id": file.id, "filename": file.filename, "uploaded_filename": file.upload_filename }))
+            .collect();
+        let payload = json!({ "content": content, "attachments": attachments });
+        let resp = self.client.post(&url).json(&payload).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("Discord error {}", resp.status().as_u16()))
+        }
+    }
+
     /// Opens (or finds) the DM with a user and returns its channel id.
     pub async fn open_dm(&self, user_id: &str) -> Result<String, String> {
         let url = "https://discord.com/api/v9/users/@me/channels";
@@ -630,5 +719,28 @@ impl DiscordHttpClient {
                 Err(err)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod upload_tests {
+    use super::*;
+
+    #[test]
+    fn upload_targets_keep_the_order_and_names_asked_for() {
+        let body = json!({ "attachments": [
+            { "id": 0, "upload_url": "https://storage/a", "upload_filename": "tmp/a" },
+            { "id": "1", "upload_url": "https://storage/b", "upload_filename": "tmp/b" }
+        ]});
+        let targets = parse_upload_targets(&body, &["a.png".to_string(), "b.txt".to_string()]).unwrap();
+        assert_eq!(targets[0].id, "0");
+        assert_eq!(targets[1].filename, "b.txt");
+        assert_eq!(targets[1].upload_filename, "tmp/b");
+    }
+
+    #[test]
+    fn an_upload_link_that_is_not_https_is_refused() {
+        let body = json!({ "attachments": [{ "id": 0, "upload_url": "http://storage/a", "upload_filename": "x" }] });
+        assert!(parse_upload_targets(&body, &["a".to_string()]).is_err());
     }
 }

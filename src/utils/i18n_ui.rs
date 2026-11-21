@@ -141,6 +141,7 @@ ui_strings! {
     (appearance, set_appearance, "APPEARANCE", "APARÊNCIA", "APARIENCIA", "DARSTELLUNG", "APPARENCE", "ВНЕШНИЙ ВИД", "外観"),
     (light_theme, set_light_theme, "Light theme", "Tema claro", "Tema claro", "Helles Design", "Thème clair", "Светлая тема", "ライトテーマ"),
     (light_theme_desc, set_light_theme_desc, "Switches the whole interface between the light and dark palettes.", "Alterna toda a interface entre as paletas clara e escura.", "Cambia toda la interfaz entre las paletas clara y oscura.", "Wechselt die gesamte Oberfläche zwischen hellem und dunklem Farbschema.", "Bascule toute l'interface entre les palettes claire et sombre.", "Переключает весь интерфейс между светлой и тёмной палитрами.", "インターフェース全体のライト/ダークの配色を切り替えます。"),
+    (uploading_files, set_uploading_files, "Uploading...", "Enviando...", "Subiendo...", "Wird hochgeladen...", "Envoi...", "Загрузка...", "アップロード中..."),
     (gif_search, set_gif_search, "Search GIFs", "Buscar GIFs", "Buscar GIFs", "GIFs suchen", "Rechercher des GIF", "Поиск GIF", "GIFを検索"),
     (gif_favorites, set_gif_favorites, "Favorites", "Favoritos", "Favoritos", "Favoriten", "Favoris", "Избранное", "お気に入り"),
     (gif_trending, set_gif_trending, "Trending", "Em alta", "Tendencias", "Im Trend", "Tendances", "В тренде", "トレンド"),
