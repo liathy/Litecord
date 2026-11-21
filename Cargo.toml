@@ -172,6 +172,11 @@ incremental = true
 debug = false
 strip = false
 
+# The generated UI is large: test builds do not optimize it.
+[profile.quick.package.litecord-ui]
+opt-level = 0
+codegen-units = 256
+
 [profile.quick.package."*"]
 opt-level = 2
 codegen-units = 16
