@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroU16;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ use tokio_tungstenite::tungstenite::Message;
 use super::receiver::{NativeVideoContext, NativeVideoSession};
 use super::{handle_video_state, media_sink_wants};
 
-type VoiceSink = futures_util::stream::SplitSink<
+pub(super) type VoiceSink = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
@@ -36,7 +36,7 @@ fn generations() -> &'static Mutex<HashMap<String, u64>> {
 
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
-fn begin_generation(key: &str) -> u64 {
+pub(super) fn begin_generation(key: &str) -> u64 {
     let generation = NEXT_GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut map) = generations().lock() {
         map.insert(key.to_string(), generation);
@@ -44,7 +44,7 @@ fn begin_generation(key: &str) -> u64 {
     generation
 }
 
-fn is_current(key: &str, generation: u64) -> bool {
+pub(super) fn is_current(key: &str, generation: u64) -> bool {
     generations()
         .lock()
         .ok()
@@ -54,7 +54,7 @@ fn is_current(key: &str, generation: u64) -> bool {
 
 /// Forgets this viewer when its connection ends normally (only if a newer
 /// viewer for the same key has not replaced it).
-fn end_generation(stream_key: &str, generation: u64) {
+pub(super) fn end_generation(stream_key: &str, generation: u64) {
     if let Ok(mut map) = generations().lock() {
         if map.get(stream_key).copied() == Some(generation) {
             map.remove(stream_key);
@@ -446,7 +446,7 @@ async fn connect_once(
     }
 }
 
-async fn send_text(write: &Arc<AsyncMutex<VoiceSink>>, value: Value) -> Result<(), String> {
+pub(super) async fn send_text(write: &Arc<AsyncMutex<VoiceSink>>, value: Value) -> Result<(), String> {
     let mut sink = write.lock().await;
     sink.send(Message::Text(value.to_string().into()))
         .await
@@ -537,7 +537,7 @@ fn spawn_video_receiver(
 
 /// Replaces the DAVE session and sends a new key package. With `invalid_transition`,
 /// first tells the server that transition could not be applied, so it re-adds this client.
-async fn rejoin_dave(
+pub(super) async fn rejoin_dave(
     dave: &Arc<Mutex<Option<DaveSession>>>,
     external_sender: &Arc<Mutex<Option<Vec<u8>>>>,
     user_id: u64,
@@ -569,7 +569,7 @@ async fn rejoin_dave(
         .map_err(|e| format!("send key package: {e}"))
 }
 
-async fn handle_dave_binary(
+pub(super) async fn handle_dave_binary(
     data: &[u8],
     dave: &Arc<Mutex<Option<DaveSession>>>,
     external_sender: &Arc<Mutex<Option<Vec<u8>>>>,
@@ -669,315 +669,4 @@ async fn handle_dave_binary(
     Ok(())
 }
 
-/// Connects to a Go Live stream RTC server as the transmitter (broadcaster).
-pub async fn connect_stream_sender(
-    endpoint: String,
-    token: String,
-    server_id: String,
-    channel_id: String,
-    session_id: String,
-    user_id: u64,
-    stream_key: String,
-) {
-    let generation = begin_generation(&stream_key);
-    let url = normalize_url(&endpoint);
-
-    log::info!("🎬 [GO LIVE TX] Conectando como EMISSOR a {} key={}", url, stream_key);
-
-    let (ws, _) = match crate::gateway::voice::connect_voice_ws(&url).await {
-        Ok(pair) => pair,
-        Err(e) => {
-            log::warn!("🎬 [GO LIVE TX] Falha ao conectar WebSocket: {:?}", e);
-            return;
-        }
-    };
-
-    let (write, mut read) = ws.split();
-    let write = Arc::new(AsyncMutex::new(write));
-    let mut sender_ssrc = 0u32;
-    let mut video_ssrc = 0u32;
-    let mut rtx_ssrc = 0u32;
-    let mut mode_str = "aead_aes256_gcm_rtpsize".to_string();
-    let dave: Arc<Mutex<Option<DaveSession>>> = Arc::new(Mutex::new(None));
-    let saved_external_sender: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
-    // Until the server says otherwise, nothing is sent without DAVE.
-    let dave_required = Arc::new(AtomicBool::new(true));
-    let mut dave_group = 0u64;
-    let mut pending_dave_version: Option<u64> = None;
-    let mut socket: Option<Arc<UdpSocket>> = None;
-    let mut target: Option<SocketAddr> = None;
-    let mut read_timeout = Duration::from_secs(60);
-
-    while is_current(&stream_key, generation) {
-        let msg = match tokio::time::timeout(read_timeout, read.next()).await {
-            Ok(Some(Ok(m))) => m,
-            _ => break,
-        };
-
-        match msg {
-            Message::Text(text) => {
-                let Ok(value) = serde_json::from_str::<Value>(&text) else {
-                    continue;
-                };
-                let op = value["op"].as_u64().unwrap_or(99);
-                match op {
-                    8 => {
-                        let interval = value["d"]["heartbeat_interval"].as_f64().unwrap_or(41250.0);
-                        let heartbeat = (interval * 0.75).max(1000.0) as u64;
-                        read_timeout = Duration::from_millis(heartbeat.saturating_mul(2).saturating_add(5000));
-                        let identify = json!({
-                            "op": 0,
-                            "d": {
-                                "server_id": server_id,
-                                "channel_id": channel_id,
-                                "user_id": user_id.to_string(),
-                                "session_id": session_id,
-                                "token": token,
-                                "video": true,
-                                "streams": [
-                                    { "type": "screen", "rid": "100", "quality": 100 }
-                                ],
-                                "max_dave_protocol_version": 1
-                            }
-                        });
-                        if let Err(e) = send_text(&write, identify).await {
-                            log::warn!("🎬 [GO LIVE TX] Falha no Identify: {:?}", e);
-                            break;
-                        }
-
-                        let write_hb = Arc::clone(&write);
-                        let key = stream_key.clone();
-                        tokio::spawn(async move {
-                            loop {
-                                sleep(Duration::from_millis(heartbeat)).await;
-                                if !is_current(&key, generation) {
-                                    break;
-                                }
-                                let t = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64;
-                                let mut sink = write_hb.lock().await;
-                                if sink.send(Message::Text(json!({ "op": 3, "d": t }).to_string().into())).await.is_err() {
-                                    break;
-                                }
-                            }
-                        });
-                    }
-                    2 => {
-                        sender_ssrc = value["d"]["ssrc"].as_u64().unwrap_or(0) as u32;
-                        video_ssrc = value["d"]["streams"]
-                            .as_array()
-                            .and_then(|arr| arr.first())
-                            .and_then(|s| s["ssrc"].as_u64())
-                            .map(|s| s as u32)
-                            .unwrap_or(sender_ssrc.saturating_add(1));
-                        rtx_ssrc = value["d"]["streams"]
-                            .as_array()
-                            .and_then(|arr| arr.first())
-                            .and_then(|s| s["rtx_ssrc"].as_u64())
-                            .map(|s| s as u32)
-                            .unwrap_or(video_ssrc.saturating_add(1));
-
-                        let ip = value["d"]["ip"].as_str().unwrap_or("").to_string();
-                        let port = value["d"]["port"].as_u64().unwrap_or(0) as u16;
-                        if let Some(modes) = value["d"]["modes"].as_array() {
-                            let available_modes: Vec<&str> = modes.iter().filter_map(|m| m.as_str()).collect();
-                            if available_modes.contains(&"aead_aes256_gcm_rtpsize") {
-                                mode_str = "aead_aes256_gcm_rtpsize".to_string();
-                            } else if available_modes.contains(&"aead_xchacha20_poly1305_rtpsize") {
-                                mode_str = "aead_xchacha20_poly1305_rtpsize".to_string();
-                            } else if let Some(&selected) = available_modes.first() {
-                                mode_str = selected.to_string();
-                            }
-                        }
-                        if ip.is_empty() || port == 0 {
-                            log::warn!("🎬 [GO LIVE TX] Ready sem IP/porta");
-                            break;
-                        }
-
-                        let udp = match UdpSocket::bind("0.0.0.0:0").await {
-                            Ok(u) => Arc::new(u),
-                            Err(e) => {
-                                log::warn!("🎬 [GO LIVE TX] Falha no UDP bind: {:?}", e);
-                                break;
-                            }
-                        };
-                        let discovered = discover_public_address(&udp, sender_ssrc, &ip, port).await;
-                        let (pub_ip, pub_port) = discovered
-                            .unwrap_or_else(|| (ip.clone(), udp.local_addr().map(|a| a.port()).unwrap_or(0)));
-                        target = format!("{ip}:{port}").parse().ok();
-                        socket = Some(Arc::clone(&udp));
-
-                        let select = json!({
-                            "op": 1,
-                            "d": {
-                                "protocol": "udp",
-                                "data": {
-                                    "address": pub_ip,
-                                    "port": pub_port,
-                                    "mode": mode_str.clone()
-                                },
-                                "codecs": [
-                                    { "name": "opus", "type": "audio", "priority": 1000, "payload_type": 120 },
-                                    { "name": "H264", "type": "video", "priority": 1000,
-                                      "payload_type": super::sender::H264_PAYLOAD_TYPE,
-                                      "rtx_payload_type": super::sender::H264_RTX_PAYLOAD_TYPE,
-                                      "encode": true, "decode": true }
-                                ]
-                            }
-                        });
-                        let _ = send_text(&write, select).await;
-                    }
-                    21 => {
-                        let transition = value["d"]["transition_id"].as_u64().unwrap_or(0);
-                        let version = value["d"]["protocol_version"].as_u64().unwrap_or(1);
-                        if transition == 0 {
-                            dave_required.store(version > 0, Ordering::Relaxed);
-                        } else {
-                            pending_dave_version = Some(version);
-                            let _ = send_text(&write, json!({ "op": 23, "d": { "transition_id": transition } })).await;
-                        }
-                    }
-                    22 => {
-                        if let Some(version) = pending_dave_version.take() {
-                            dave_required.store(version > 0, Ordering::Relaxed);
-                        }
-                        crate::screen_capture::types::request_intra_keyframe();
-                    }
-                    24 => {
-                        if value["d"]["epoch"].as_u64() == Some(1) {
-                            let version = value["d"]["protocol_version"].as_u64().unwrap_or(1).max(1) as u16;
-                            dave_required.store(true, Ordering::Relaxed);
-                            let key_package = {
-                                let mut guard = dave.lock().unwrap();
-                                match DaveSession::new(NonZeroU16::new(version).unwrap_or(NonZeroU16::MIN), user_id, dave_group.max(1), None) {
-                                    Ok(mut fresh) => {
-                                        if let Some(external) = saved_external_sender.lock().unwrap().as_ref() {
-                                            let _ = fresh.set_external_sender(external);
-                                        }
-                                        let package = fresh.create_key_package().ok();
-                                        *guard = Some(fresh);
-                                        package
-                                    }
-                                    Err(e) => {
-                                        log::warn!("🎬 [GO LIVE TX] DAVE não reiniciou: {:?}", e);
-                                        None
-                                    }
-                                }
-                            };
-                            if let Some(package) = key_package {
-                                let mut packet = vec![26u8];
-                                packet.extend_from_slice(&package);
-                                let mut sink = write.lock().await;
-                                let _ = sink.send(Message::Binary(packet.into())).await;
-                            }
-                        }
-                    }
-                    4 => {
-                        let mut secret_key_bytes = Vec::new();
-                        if let Some(keys) = value["d"]["secret_key"].as_array() {
-                            secret_key_bytes = keys.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect();
-                        }
-                        if secret_key_bytes.len() != 32 {
-                            log::warn!("🎬 [GO LIVE TX] Secret key inválida (len={})", secret_key_bytes.len());
-                            break;
-                        }
-
-                        dave_group = value["d"]["media_session_id"]
-                            .as_u64()
-                            .filter(|id| *id != 0)
-                            .unwrap_or_else(|| server_id.parse::<u64>().unwrap_or(1).saturating_sub(1))
-                            .max(1);
-                        let dave_version = value["d"]["dave_protocol_version"].as_u64().unwrap_or(1);
-                        log::info!("🎬 [GO LIVE TX] Sessão: codec={:?} DAVE={}", value["d"]["video_codec"].as_str(), dave_version);
-                        dave_required.store(dave_version > 0, Ordering::Relaxed);
-                        if dave_version > 0 {
-                            let mut session = dave.lock().unwrap();
-                            if session.is_none() {
-                                match DaveSession::new(NonZeroU16::new(dave_version as u16).unwrap_or(NonZeroU16::MIN), user_id, dave_group, None) {
-                                    Ok(created) => *session = Some(created),
-                                    Err(e) => log::warn!("🎬 [GO LIVE TX] DAVE init falhou: {:?}", e),
-                                }
-                            }
-                        }
-
-                        // Opcode 5 Speaking
-                        let speaking = json!({
-                            "op": 5,
-                            "d": {
-                                "speaking": 2,
-                                "delay": 0,
-                                "ssrc": sender_ssrc
-                            }
-                        });
-                        let _ = send_text(&write, speaking).await;
-
-                        // Opcode 12 Video, announcing what the encoder really sends
-                        let (out_width, out_height, out_fps) = super::sender::outbound_quality();
-                        let video = json!({
-                            "op": 12,
-                            "d": {
-                                "audio_ssrc": sender_ssrc,
-                                "video_ssrc": video_ssrc,
-                                "rtx_ssrc": rtx_ssrc,
-                                "streams": [
-                                    {
-                                        "type": "video",
-                                        "rid": "100",
-                                        "ssrc": video_ssrc,
-                                        "active": true,
-                                        "quality": 100,
-                                        "rtx_ssrc": rtx_ssrc,
-                                        "max_bitrate": 8000000,
-                                        "max_framerate": out_fps,
-                                        "max_resolution": {
-                                            "type": "fixed",
-                                            "width": out_width,
-                                            "height": out_height
-                                        }
-                                    }
-                                ]
-                            }
-                        });
-                        let _ = send_text(&write, video).await;
-
-                        if let (Some(udp), Some(target_addr)) = (socket.as_ref(), target) {
-                            let mode = super::crypto::TransportMode::from_name(&mode_str);
-                            super::sender::start_sender(
-                                Arc::clone(udp),
-                                target_addr,
-                                secret_key_bytes,
-                                mode,
-                                video_ssrc,
-                                stream_key.clone(),
-                                Arc::clone(&dave),
-                                Arc::clone(&dave_required),
-                            );
-                        }
-                    }
-                    other => log::info!("🎬 [GO LIVE TX] Gateway op {}", other),
-                }
-            }
-            Message::Binary(data) => {
-                if !data.is_empty() {
-                    if let Err(e) = handle_dave_binary(&data, &dave, &saved_external_sender, user_id, dave_group, &write).await {
-                        log::warn!("🎬 [GO LIVE TX] Falha no DAVE: {}", e);
-                        break;
-                    }
-                    // A commit or welcome changes the key: new viewers need a fresh full frame.
-                    if matches!(data[0], 29 | 30) {
-                        crate::screen_capture::types::request_intra_keyframe();
-                        log::info!("🔐 [GO LIVE TX] Grupo DAVE mudou: {:?} membros", dave.lock().unwrap().as_ref().and_then(|s| s.get_user_ids()).map(|u| u.len()));
-                    }
-                }
-            }
-            Message::Close(_) => break,
-            _ => {}
-        }
-    }
-
-    super::sender::stop_sender(&stream_key);
-    end_generation(&stream_key, generation);
-    log::info!("🛑 [GO LIVE TX] Conexão emissora encerrada key={}", stream_key);
-}
+pub use super::webrtc_tx::connect_stream_sender;

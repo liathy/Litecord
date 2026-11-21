@@ -19,6 +19,7 @@ pub mod rtp;
 pub mod rtcp;
 pub mod sender;
 pub mod stream;
+pub mod webrtc_tx;
 
 pub use sender::{is_broadcasting, offer_outbound_frame, stop_sender};
 

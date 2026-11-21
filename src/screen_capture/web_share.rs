@@ -468,7 +468,7 @@ struct WebStats {
 fn contains_idr(data: &[u8]) -> bool {
     data.windows(4).any(|w| w[..3] == [0, 0, 1] && w[3] & 0x1f == 5)
 }
-fn install_crypto_provider() {
+pub(crate) fn install_crypto_provider() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| str0m::crypto::from_feature_flags().install_process_default());
 }
