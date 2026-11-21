@@ -88,6 +88,11 @@ fn probe_local_source(ip: &str, port: u16) -> Option<std::net::SocketAddr> {
     sock.local_addr().ok()
 }
 
+/// Stream audio is mixed under ids with the top bit set; everything else is a person's voice.
+fn is_voice_queue(ssrc: u32) -> bool {
+    ssrc < 0x8000_0000
+}
+
 pub(crate) async fn connect_voice_ws(
     voice_url: &str,
 ) -> Result<
@@ -1183,21 +1188,18 @@ pub async fn connect_voice_gateway(
                                                                         for s in output.iter_mut() { *s = 0.0; }
                                                                         return;
                                                                     }
-                                                                    if is_self_deaf() {
-                                                                        was_deaf = true;
-                                                                        for s in output.iter_mut() { *s = 0.0; }
-                                                                        return;
-                                                                    }
                                                                     for s in output.iter_mut() { *s = 0.0; }
 
                                                                     if let Ok(mut queues) = sq_f32.lock() {
-                                                                        if was_deaf {
-                                                                            was_deaf = false;
-                                                                            for q in queues.values_mut() { q.clear(); }
-                                                                            started_ssrcs.clear();
-                                                                            inactive_samples.clear();
-                                                                            ssrc_phases.clear();
-                                                                            ssrc_histories.clear();
+                                                                        // Deafen silences people's voices only: watched streams keep playing.
+                                                                        let deaf_now = is_self_deaf();
+                                                                        if deaf_now || was_deaf {
+                                                                            was_deaf = deaf_now;
+                                                                            queues.iter_mut().filter(|(ssrc, _)| is_voice_queue(**ssrc)).for_each(|(_, q)| q.clear());
+                                                                            started_ssrcs.retain(|ssrc| !is_voice_queue(*ssrc));
+                                                                            inactive_samples.retain(|ssrc, _| !is_voice_queue(*ssrc));
+                                                                            ssrc_phases.retain(|ssrc, _| !is_voice_queue(*ssrc));
+                                                                            ssrc_histories.retain(|ssrc, _| !is_voice_queue(*ssrc));
                                                                         }
                                                                         let frames = output.len() / out_channels.max(1);
                                                                         // Keep at least three callbacks buffered: a fixed 40 ms would drain
@@ -1398,21 +1400,18 @@ pub async fn connect_voice_gateway(
                                                                         for s in output.iter_mut() { *s = 0; }
                                                                         return;
                                                                     }
-                                                                    if is_self_deaf() {
-                                                                        was_deaf = true;
-                                                                        for s in output.iter_mut() { *s = 0; }
-                                                                        return;
-                                                                    }
                                                                     for s in output.iter_mut() { *s = 0; }
 
                                                                     if let Ok(mut queues) = sq_i16.lock() {
-                                                                        if was_deaf {
-                                                                            was_deaf = false;
-                                                                            for q in queues.values_mut() { q.clear(); }
-                                                                            started_ssrcs.clear();
-                                                                            inactive_samples.clear();
-                                                                            ssrc_phases.clear();
-                                                                            ssrc_histories.clear();
+                                                                        // Deafen silences people's voices only: watched streams keep playing.
+                                                                        let deaf_now = is_self_deaf();
+                                                                        if deaf_now || was_deaf {
+                                                                            was_deaf = deaf_now;
+                                                                            queues.iter_mut().filter(|(ssrc, _)| is_voice_queue(**ssrc)).for_each(|(_, q)| q.clear());
+                                                                            started_ssrcs.retain(|ssrc| !is_voice_queue(*ssrc));
+                                                                            inactive_samples.retain(|ssrc, _| !is_voice_queue(*ssrc));
+                                                                            ssrc_phases.retain(|ssrc, _| !is_voice_queue(*ssrc));
+                                                                            ssrc_histories.retain(|ssrc, _| !is_voice_queue(*ssrc));
                                                                         }
                                                                         let frames = output.len() / out_channels.max(1);
                                                                         // Keep at least three callbacks buffered: a fixed 40 ms would drain
@@ -2862,6 +2861,12 @@ mod voice_seq_tests {
         let current = std::sync::atomic::AtomicU64::new(9);
         assert_eq!(next_voice_connection_id(&current, 7), None);
         assert_eq!(current.load(Ordering::SeqCst), 9);
+    }
+
+    #[test]
+    fn deafen_only_clears_voices() {
+        assert!(is_voice_queue(12345));
+        assert!(!is_voice_queue(0x8000_0000 | 77));
     }
 
     #[test]
