@@ -5112,6 +5112,32 @@ export component AppWindow inherits Window {
                                     spacing: 8px;
                                     height: 32px;
 
+                                    // 1440p (2560x1440)
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        background: root.stream_selected_res == "1440p" ? AppTheme.accent : (res_1440_ta.has-hover ? AppTheme.interactive-hover : AppTheme.surface-sidebar);
+                                        border-radius: 6px;
+                                        border-width: 1px;
+                                        border-color: root.stream_selected_res == "1440p" ? AppTheme.accent : AppTheme.border-subtle;
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text {
+                                                text: "1440p";
+                                                color: root.stream_selected_res == "1440p" ? AppTheme.text-strong : AppTheme.text-primary;
+                                                font-size: TypeScale.caption;
+                                                font-weight: 700;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        res_1440_ta := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.stream_selected_res = "1440p"; }
+                                        }
+                                    }
+
                                     // 1080p (1920x1080)
                                     Rectangle {
                                         horizontal-stretch: 1;
