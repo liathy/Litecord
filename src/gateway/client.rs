@@ -389,12 +389,26 @@ struct StrictReadyGuild<'a> {
     id: std::borrow::Cow<'a, str>,
     #[serde(default, borrow)]
     name: Option<std::borrow::Cow<'a, str>>,
+    /// User accounts receive the server's name and icon here.
+    #[serde(default, borrow)]
+    properties: Option<StrictReadyGuildProperties<'a>>,
     #[serde(default, borrow)]
     emojis: Vec<StrictReadyEmoji<'a>>,
     #[serde(default)]
     voice_states: Vec<StrictReadyVoiceState>,
     #[serde(default, borrow)]
     channels: Vec<StrictReadyChannel<'a>>,
+}
+
+/// A server's name: at the top level for bots, under `properties` for user accounts.
+fn guild_name(guild: &Value) -> &str {
+    guild["name"].as_str().or_else(|| guild["properties"]["name"].as_str()).unwrap_or("Servidor")
+}
+
+#[derive(serde::Deserialize)]
+struct StrictReadyGuildProperties<'a> {
+    #[serde(default, borrow)]
+    name: Option<std::borrow::Cow<'a, str>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1132,7 +1146,10 @@ impl GatewayClient {
 
             // Channels
             let gid = g.id.to_string();
-            let gname = g.name.as_deref().unwrap_or("Servidor").to_string();
+            let gname = g.name.as_deref()
+                .or_else(|| g.properties.as_ref().and_then(|p| p.name.as_deref()))
+                .unwrap_or("Servidor")
+                .to_string();
             if !gid.is_empty() {
                 let mut channels = Vec::new();
                 for ch in g.channels {
@@ -1290,7 +1307,7 @@ impl GatewayClient {
 
                             // Extract channels if present in READY payload (Zero-Network Server Switching)
                             let gid = g["id"].as_str().unwrap_or("").to_string();
-                            let gname = g["name"].as_str().unwrap_or("Servidor").to_string();
+                            let gname = guild_name(g).to_string();
                             if !gid.is_empty() {
                                 if let Some(chans_arr) = g["channels"].as_array() {
                                     let mut channels = Vec::new();
@@ -1546,6 +1563,7 @@ impl GatewayClient {
                         let my_uid = self.user_id.lock().unwrap().clone().unwrap_or_default();
                         let event_uid_str = event_uid.to_string();
                         if !my_uid.is_empty() && event_uid_str == my_uid {
+                            info!("🎬 [GO LIVE] Meu estado de voz: self_stream={:?} self_video={:?}", v["d"]["self_stream"].as_bool(), v["d"]["self_video"].as_bool());
                             let event_gid = v["d"]["guild_id"].as_str().map(|s| s.to_string());
                             let my_active_gid = self.voice_guild_id.lock().unwrap().clone();
                             let my_active_cid = self.voice_channel_id.lock().unwrap().clone();
@@ -1937,7 +1955,7 @@ impl GatewayClient {
                 }
                 "GUILD_CREATE" => {
                     let id = v["d"]["id"].as_str().unwrap_or("").to_string();
-                    let name = v["d"]["name"].as_str().unwrap_or("Servidor").to_string();
+                    let name = guild_name(&v["d"]).to_string();
                     let mut channels = Vec::new();
 
                     if let Some(chans_arr) = v["d"]["channels"].as_array() {
@@ -2046,6 +2064,19 @@ impl GatewayClient {
     }
 }
 
+
+#[cfg(test)]
+mod guild_name_tests {
+    use super::guild_name;
+    use serde_json::json;
+
+    #[test]
+    fn user_accounts_read_the_name_from_properties() {
+        assert_eq!(guild_name(&json!({ "properties": { "name": "113 teclas" } })), "113 teclas");
+        assert_eq!(guild_name(&json!({ "name": "Bot view" })), "Bot view");
+        assert_eq!(guild_name(&json!({})), "Servidor");
+    }
+}
 
 #[cfg(test)]
 mod tests {
