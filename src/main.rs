@@ -52,7 +52,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SW_HIDE, SW_SHOW, SW_RESTORE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, HWND_TOP
 };
 
-slint::include_modules!();
+pub use litecord_ui::*;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

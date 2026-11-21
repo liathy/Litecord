@@ -11,7 +11,7 @@ pub mod encoder;
 pub mod screen_capture;
 pub mod native_video;
 
-slint::include_modules!();
+pub use litecord_ui::*;
 
 pub use auth::*;
 pub use audio::*;

@@ -1,6 +1,4 @@
 fn main() {
-    slint_build::compile("ui/appwindow.slint").expect("Slint build failed");
-
     // Extract Git commit hash and dirty status for accurate version tracking
     let git_hash = std::process::Command::new("git")
         .args(["rev-parse", "--short=7", "HEAD"])

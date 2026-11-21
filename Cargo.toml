@@ -8,12 +8,16 @@ license = "MIT"
 repository = "https://github.com/Ak4ai/Litecord"
 readme = "README.md"
 
+[workspace]
+members = ["crates/litecord-ui"]
+
 [features]
 # Test-only remote control of the UI (see src/automation.rs). Never enable for releases.
 automation = []
 
 [dependencies]
 slint = "1.9"
+litecord-ui = { path = "crates/litecord-ui" }
 i-slint-backend-winit = "1.9"
 tokio = { version = "1.43", features = ["full"] }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
@@ -129,9 +133,6 @@ x11rb = { version = "0.14", features = ["allow-unsafe-code"] }
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "screencast"] }
 libc = "0.2"
 
-[build-dependencies]
-slint-build = "1.9"
-
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
@@ -159,6 +160,21 @@ strip = true
 inherits = "release"
 codegen-units = 256
 lto = "off"
+
+# Local test builds: light optimization for Litecord, optimized dependencies so audio,
+# crypto and images still run well. Not for releases or CPU measurements.
+[profile.quick]
+inherits = "release"
+opt-level = 1
+codegen-units = 256
+lto = "off"
+incremental = true
+debug = false
+strip = false
+
+[profile.quick.package."*"]
+opt-level = 2
+codegen-units = 16
 
 
 # Local copy of i-slint-core 1.17.1 with one fix: a mouse-wheel scroll animation could get

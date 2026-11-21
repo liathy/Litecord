@@ -4631,6 +4631,7 @@ dependencies = [
  "image",
  "jpeg-encoder",
  "libc",
+ "litecord-ui",
  "log",
  "mimalloc",
  "nnnoiseless",
@@ -4646,7 +4647,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "slint",
- "slint-build",
  "socket2 0.5.10",
  "str0m",
  "tokio",
@@ -4660,6 +4660,14 @@ dependencies = [
  "x11rb 0.14.0",
  "x25519-dalek 3.0.0",
  "zune-jpeg 0.4.21",
+]
+
+[[package]]
+name = "litecord-ui"
+version = "1.3.1-beta"
+dependencies = [
+ "slint",
+ "slint-build",
 ]
 
 [[package]]
