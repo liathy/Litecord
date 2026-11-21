@@ -752,6 +752,7 @@ export component AppWindow inherits Window {
     callback channel_action(string, string, length, length);
     in-out property <bool> can_manage_channels: false;
     in-out property <bool> can_create_invite: false;
+    in-out property <bool> can_move_members: false;
     in-out property <bool> channel_menu_open: false;
     in-out property <string> channel_menu_id: "";
     in-out property <length> channel_menu_x;
@@ -1740,14 +1741,6 @@ export component AppWindow inherits Window {
                                                 border-bottom-right-radius: 4px;
                                                 animate height { duration: 150ms; easing: ease-out; }
                                             }
-                                            // Line joining the servers of an open folder.
-                                            if guild.in_folder: Rectangle {
-                                                x: 5px;
-                                                y: -5px;
-                                                width: 3px;
-                                                height: 58px;
-                                                background: guild.folder_color;
-                                            }
                                         }
 
                                         Rectangle {
@@ -1909,6 +1902,7 @@ export component AppWindow inherits Window {
                 channel_action(name, id, x, y) => { root.channel_action(name, id, x, y); }
                 can_manage_channels: root.can_manage_channels;
                 can_create_invite: root.can_create_invite;
+                can_move_members: root.can_move_members;
                 in_server: root.active_guild_id != "@me" && root.active_guild_id != "";
                 is_screen_sharing: root.is_screen_sharing;
                 open_stream_modal => {

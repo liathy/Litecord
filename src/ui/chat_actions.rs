@@ -33,6 +33,8 @@ struct Store {
     gif_pages: HashMap<String, String>,
     favorites: HashSet<String>,
     mentions: HashMap<String, String>,
+    /// `:name:` picked from autofill, and what is really sent for it.
+    typed_emoji: HashMap<String, String>,
 }
 
 static STORE: Mutex<Option<Store>> = Mutex::new(None);
@@ -236,6 +238,13 @@ pub fn install(ui: &AppWindow) {
 
 /// An emoji image arrived: shows it on the toolbar and on the messages using it.
 pub fn emoji_loaded(ui: &AppWindow, emoji_id: &str, image: &Image) {
+    let suggestions = ui.get_mention_items();
+    for index in 0..suggestions.row_count() {
+        if let Some(mut item) = suggestions.row_data(index).filter(|item| item.is_emoji && item.emoji_id == emoji_id) {
+            item.img = image.clone();
+            suggestions.set_row_data(index, item);
+        }
+    }
     let quick = ui.get_quick_reactions();
     for index in 0..quick.row_count() {
         if let Some(mut item) = quick.row_data(index).filter(|item| item.emoji_id == emoji_id) {
@@ -456,7 +465,44 @@ fn mention_query(text: &str) -> Option<&str> {
     (starts_word && !query.contains(char::is_whitespace)).then_some(query)
 }
 
+/// The name after a `:` being typed at the end of the message, two letters or more.
+fn emoji_query(text: &str) -> Option<&str> {
+    let colon = text.rfind(':')?;
+    let query = &text[colon + 1..];
+    let starts_word = colon == 0 || text[..colon].ends_with(char::is_whitespace);
+    let valid = query.len() >= 2 && query.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '+');
+    (starts_word && valid).then_some(query)
+}
+
+fn emoji_input(ui: &AppWindow, query: &str) {
+    let items: Vec<MentionItem> = crate::ui::expression_picker::autocomplete(ui, query, MAX_MENTIONS)
+        .into_iter()
+        .map(|emoji| {
+            let img = emoji_cache::get_emoji_cache().get(&emoji.emoji_id);
+            if img.is_none() && !emoji.emoji_id.is_empty() {
+                crate::ui::expression_picker::load_emoji(ui, &emoji.emoji_id);
+            }
+            MentionItem {
+                user_id: emoji.code,
+                name: emoji.name.clone(),
+                subtitle: format!(":{}:", emoji.name).into(),
+                is_emoji: true,
+                emoji_id: emoji.emoji_id,
+                img: img.unwrap_or_default(),
+                ..Default::default()
+            }
+        })
+        .collect();
+    ui.set_mention_index(0);
+    ui.set_show_mentions(!items.is_empty());
+    ui.set_mention_items(ModelRc::new(VecModel::from(items)));
+}
+
 pub fn mention_input(ui: &AppWindow, text: &str) {
+    if let Some(query) = emoji_query(text) {
+        emoji_input(ui, query);
+        return;
+    }
     let found = if ui.get_active_guild_id() == "@me" { None } else { mention_query(text) };
     let Some(query) = found else {
         ui.set_show_mentions(false);
@@ -469,6 +515,7 @@ pub fn mention_input(ui: &AppWindow, text: &str) {
             avatar_text: name.chars().next().unwrap_or('?').to_uppercase().to_string().into(),
             name: name.into(),
             subtitle: subtitle.into(),
+            ..Default::default()
         })
         .collect();
     ui.set_mention_index(0);
@@ -479,12 +526,40 @@ pub fn mention_input(ui: &AppWindow, text: &str) {
 pub fn pick_mention(ui: &AppWindow, index: i32) {
     let Some(item) = ui.get_mention_items().row_data(index.max(0) as usize) else { return };
     let text = ui.get_chat_input_text().to_string();
+    if item.is_emoji {
+        let Some(colon) = text.rfind(':') else { return };
+        with_store(|store| {
+            store.typed_emoji.insert(format!(":{}:", item.name), item.user_id.to_string());
+        });
+        ui.set_chat_input_text(format!("{}:{}: ", &text[..colon], item.name).into());
+        ui.set_show_mentions(false);
+        return;
+    }
     let Some(at) = text.rfind('@') else { return };
     with_store(|store| {
         store.mentions.insert(item.name.to_string(), item.user_id.to_string());
     });
     ui.set_chat_input_text(format!("{}@{} ", &text[..at], item.name).into());
     ui.set_show_mentions(false);
+}
+
+#[cfg(test)]
+mod emoji_query_tests {
+    use super::emoji_query;
+
+    #[test]
+    fn finds_the_name_being_typed() {
+        assert_eq!(emoji_query(":pra"), Some("pra"));
+        assert_eq!(emoji_query("oi :thumbs_up"), Some("thumbs_up"));
+    }
+
+    #[test]
+    fn ignores_times_links_and_finished_emoji() {
+        assert_eq!(emoji_query("12:30"), None);
+        assert_eq!(emoji_query("https://site"), None);
+        assert_eq!(emoji_query(":p"), None);
+        assert_eq!(emoji_query(":joy: "), None);
+    }
 }
 
 fn replace_mentions(content: &str, names: &HashMap<String, String>) -> String {
@@ -500,7 +575,10 @@ fn replace_mentions(content: &str, names: &HashMap<String, String>) -> String {
 /// `@Name` picked from the list becomes a real mention when sent.
 pub fn encode_mentions(content: &str) -> String {
     with_store(|store| {
-        let out = replace_mentions(content, &store.mentions);
+        let mut out = replace_mentions(content, &store.mentions);
+        for (typed, code) in store.typed_emoji.drain() {
+            out = out.replace(&typed, &code);
+        }
         store.mentions.clear();
         out
     })

@@ -27,6 +27,7 @@ export struct ChannelItem {
     emoji_id: string,
     emoji_slot: int,    // index into `emoji_pool`
     label: string,
+    emoji_prefix: string,
     dm_user: string,
     has_status: bool,
     status_color: color,
@@ -122,6 +123,8 @@ export component ChannelSidebar inherits Rectangle {
     callback stream_row_hover(string, string, length, bool);
     callback channel_action(string, string, length, length);
     callback open_friends();
+    in property <bool> can_move_members;
+    property <bool> ignore_next_click: false;
     callback toggle_voice_stats();
     in property <int> voice_quality;
     in property <bool> in_dms;
@@ -296,6 +299,12 @@ export component ChannelSidebar inherits Rectangle {
                                     }
                                 }
 
+                                if channel.emoji_id != "" && channel.emoji_prefix != "": Text {
+                                    text: channel.emoji_prefix;
+                                    color: AppTheme.text-muted;
+                                    font-size: TypeScale.caption;
+                                    vertical-alignment: center;
+                                }
                                 if channel.emoji_id != "": VerticalLayout {
                                     alignment: center;
                                     Image {
@@ -375,6 +384,12 @@ export component ChannelSidebar inherits Rectangle {
                             }
 
                             // Channel Name (leading emoji as a colour image)
+                            if channel.emoji_id != "" && channel.emoji_prefix != "": Text {
+                                text: channel.emoji_prefix;
+                                color: AppTheme.text-muted;
+                                font-size: TypeScale.body;
+                                vertical-alignment: center;
+                            }
                             if channel.emoji_id != "": VerticalLayout {
                                 alignment: center;
                                 Image {
@@ -552,16 +567,29 @@ export component ChannelSidebar inherits Rectangle {
                                 if (!channel.is_voice_member && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                                     root.channel_action("menu", channel.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                                 }
+                                if (event.kind == PointerEventKind.down) {
+                                    root.ignore_next_click = false;
+                                }
                                 if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
+                                    if (root.dragging_channel_idx >= 0) {
+                                        root.ignore_next_click = true;
+                                    }
                                     if (root.dragging_channel_idx >= 0 && root.drop_target_channel_idx >= 0 && root.dragging_channel_idx != root.drop_target_channel_idx) {
-                                        root.reorder_channel(root.dragging_channel_idx, root.drop_target_channel_idx);
+                                        if (channel.is_voice_member) {
+                                            let target = root.channels[root.drop_target_channel_idx];
+                                            if (event.kind == PointerEventKind.up && (target.is_voice || target.is_voice_member)) {
+                                                root.channel_action("move_member", channel.id + "|" + (target.is_voice_member ? target.parent_channel_id : target.id), 0px, 0px);
+                                            }
+                                        } else {
+                                            root.reorder_channel(root.dragging_channel_idx, root.drop_target_channel_idx);
+                                        }
                                     }
                                     root.dragging_channel_idx = -1;
                                     root.drop_target_channel_idx = -1;
                                 }
                             }
                             moved => {
-                                if (!channel.is_category && !channel.is_voice_member) {
+                                if (!channel.is_category && (!channel.is_voice_member || root.can_move_members)) {
                                     // The pressed row keeps the pointer while dragged: the target
                                     // comes from how far it moved (computed where row heights are known).
                                     if (self.pressed) {
@@ -576,7 +604,9 @@ export component ChannelSidebar inherits Rectangle {
                                 }
                             }
                             clicked => {
-                                if (root.dragging_channel_idx < 0) {
+                                if (root.ignore_next_click) {
+                                    root.ignore_next_click = false;
+                                } else if (root.dragging_channel_idx < 0) {
                                     if channel.is_category {
                                         root.toggle_category(channel.id);
                                     } else {

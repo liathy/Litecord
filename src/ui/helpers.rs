@@ -1313,7 +1313,7 @@ pub fn set_channel_emoji_app(app: slint::Weak<AppWindow>) {
 /// emoji keeps them empty and is drawn as text.
 pub fn channel_emoji_fields(name: &str) -> ChannelItem {
     let trimmed = name.trim_start();
-    let Some((0, len, _, emoji_id)) = gateway::formatting::find_next_unicode_emoji(trimmed) else {
+    let Some((start, len, _, emoji_id)) = gateway::formatting::find_next_unicode_emoji(trimmed) else {
         return ChannelItem::default();
     };
     let (slot, is_new) = {
@@ -1346,7 +1346,8 @@ pub fn channel_emoji_fields(name: &str) -> ChannelItem {
         });
     }
     ChannelItem {
-        label: trimmed[len..].trim_start().into(),
+        emoji_prefix: trimmed[..start].trim_end().into(),
+        label: trimmed[start + len..].trim_start().into(),
         emoji_id: emoji_id.into(),
         emoji_slot: slot,
         ..Default::default()

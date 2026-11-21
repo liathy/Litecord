@@ -16,6 +16,9 @@ export struct MentionItem {
     name: string,
     subtitle: string,
     avatar_text: string,
+    is_emoji: bool,
+    emoji_id: string,
+    img: image,
 }
 
 export struct ForwardTarget {
@@ -344,7 +347,7 @@ export component MentionPopup inherits Rectangle {
         spacing: 0px;
         Text {
             height: 26px;
-            text: "MEMBERS";
+            text: root.items.length > 0 && root.items[0].is_emoji ? "EMOJI" : "MEMBERS";
             color: AppTheme.text-muted;
             font-size: TypeScale.micro;
             font-weight: 700;
@@ -364,8 +367,9 @@ export component MentionPopup inherits Rectangle {
                         width: 26px;
                         height: 26px;
                         border-radius: 13px;
-                        background: AppTheme.interactive-muted;
-                        Text { text: item.avatar_text; color: AppTheme.text-strong; font-size: TypeScale.micro; font-weight: 700; }
+                        background: item.is_emoji ? transparent : AppTheme.interactive-muted;
+                        if !item.is_emoji: Text { text: item.avatar_text; color: AppTheme.text-strong; font-size: TypeScale.micro; font-weight: 700; }
+                        if item.is_emoji: Image { width: 24px; height: 24px; source: item.img; image-fit: contain; }
                     }
                 }
                 Text {

@@ -16,6 +16,7 @@ use crate::{AppWindow, ChannelInfoRow, FriendRow};
 
 const CREATE_INVITE: u64 = 1 << 0;
 const MANAGE_CHANNELS: u64 = 1 << 4;
+const MOVE_MEMBERS: u64 = 1 << 24;
 const VIEW_CHANNEL: u64 = 1 << 10;
 const INVITE_EXPIRY: [u64; 8] = [1_800, 3_600, 21_600, 43_200, 86_400, 604_800, 2_592_000, 0];
 const INVITE_USES: [u64; 7] = [0, 1, 5, 10, 25, 50, 100];
@@ -143,6 +144,7 @@ pub fn refresh_permissions(ui: &AppWindow, http: Option<DiscordHttpClient>) {
     let guild = ui.get_active_guild_id().to_string();
     ui.set_can_manage_channels(false);
     ui.set_can_create_invite(false);
+    ui.set_can_move_members(false);
     let Some(http) = http.filter(|_| !guild.is_empty() && guild != "@me") else { return };
     let app = ui.as_weak();
     tokio::spawn(async move {
@@ -151,6 +153,7 @@ pub fn refresh_permissions(ui: &AppWindow, http: Option<DiscordHttpClient>) {
             if ui.get_active_guild_id() == guild.as_str() {
                 ui.set_can_manage_channels(permissions.has_permission(MANAGE_CHANNELS));
                 ui.set_can_create_invite(permissions.has_permission(CREATE_INVITE));
+                ui.set_can_move_members(permissions.has_permission(MOVE_MEMBERS));
             }
         });
     });
@@ -675,6 +678,26 @@ fn ask_delete(ui: &AppWindow, ctx: &Context, id: &str) {
     ui.set_channel_confirm_text(warning.into());
 }
 
+/// `voice-member:<from>:<user>|<target>` from a row dropped on a voice channel.
+fn parse_member_move(value: &str) -> Option<(&str, &str, &str)> {
+    let (row, target) = value.split_once('|')?;
+    let mut parts = row.split(':');
+    let (Some("voice-member"), Some(from), Some(user), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else { return None };
+    let numeric = |id: &str| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit());
+    (numeric(from) && numeric(user) && numeric(target) && from != target).then_some((from, user, target))
+}
+
+fn move_member(ui: &AppWindow, ctx: &Context, value: &str) {
+    let Some((_, user, target)) = parse_member_move(value) else { return };
+    let Some(http) = ctx.client() else { return };
+    let (app, guild, user, target) = (ui.as_weak(), ctx.guild(), user.to_owned(), target.to_owned());
+    tokio::spawn(async move {
+        if let Err(error) = http.update_member(&guild, &user, json!({ "channel_id": target })).await {
+            on_ui(&app, move |ui| ui.set_titlebar_error(format!("Couldn't move that user ({error})").into()));
+        }
+    });
+}
+
 fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
     if name != "menu" {
         ui.set_channel_menu_open(false);
@@ -713,6 +736,7 @@ fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
             ui.set_create_channel_open(true);
         }
         "create_submit" => create_channel(ui, ctx),
+        "move_member" => move_member(ui, ctx, id),
         "invite_filter" => refresh_invite_friends(ui),
         "invite_send" => send_invite(ui, ctx, id),
         "invite_generate" => {
@@ -757,6 +781,14 @@ pub fn install(ui: &AppWindow, ctx: Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_dropped_voice_member() {
+        assert_eq!(parse_member_move("voice-member:5:7|9"), Some(("5", "7", "9")));
+        assert_eq!(parse_member_move("voice-member:5:7|5"), None);
+        assert_eq!(parse_member_move("voice-member:5:x|9"), None);
+        assert_eq!(parse_member_move("5|9"), None);
+    }
 
     #[test]
     fn invite_settings_map_to_discord_values() {

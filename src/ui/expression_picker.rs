@@ -195,6 +195,27 @@ fn rail_item(id: &str, name: &str, icon: Image, has_icon: bool, is_recent: bool,
     }
 }
 
+/// Emoji the account may send, for `:name` autofill: names starting with the text first.
+pub fn autocomplete(ui: &AppWindow, query: &str, limit: usize) -> Vec<EmojiPickerItem> {
+    let needle = query.to_lowercase();
+    let active = ui.get_active_guild_id().to_string();
+    let has_plan = crate::native_video::sender::premium_type() != 0;
+    let customs = emoji_cache::get_all_custom_emojis();
+    let mut found: Vec<EmojiPickerItem> = customs
+        .iter()
+        .filter(|emoji| emoji.name.to_lowercase().contains(&needle))
+        .map(|emoji| custom_item(emoji, &active, has_plan))
+        .filter(|item| !item.locked)
+        .take(limit * 3)
+        .collect();
+    for group in emoji_groups() {
+        found.extend(group.items.into_iter().filter(|item| item.name.to_lowercase().contains(&needle)).take(limit * 3));
+    }
+    found.sort_by_key(|item| (!item.name.to_lowercase().starts_with(&needle), item.name.len()));
+    found.truncate(limit);
+    found
+}
+
 /// Rebuilds the emoji tab for a search text.
 pub fn build_emoji(ui: &AppWindow, query: &str) {
     let needle = query.trim().to_lowercase();
