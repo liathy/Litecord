@@ -2932,6 +2932,12 @@ export component AppWindow inherits Window {
                                 root.toggle_web_share();
                             }
                         }
+                        watching_focused_stream: root.has_active_stream && root.active_stream_user_id != "" && root.focused_stream_uid == root.active_stream_user_id;
+                        stop_watching => {
+                            let watched = root.active_stream_user_id;
+                            root.focused_stream_uid = "";
+                            root.hide_stream(watched);
+                        }
                         leave => { root.leave_voice(); }
                         open_chat => {
                             if root.call_chat_docked {

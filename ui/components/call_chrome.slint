@@ -70,6 +70,7 @@ export component CallChrome inherits Rectangle {
     in property <bool> has_stream;
     in property <bool> members_collapsed;
     in property <bool> strip_visible;
+    in property <bool> watching_focused_stream;
     in property <bool> web_share_active;
     in property <bool> web_share_pending;
     in property <string> share_label;
@@ -85,6 +86,7 @@ export component CallChrome inherits Rectangle {
     callback toggle_share();
     callback web_share();
     callback leave();
+    callback stop_watching();
     callback open_chat();
     callback pop_out();
     callback fullscreen();
@@ -205,12 +207,18 @@ export component CallChrome inherits Rectangle {
                     background: AppTheme.danger-action;
                     border-color: AppTheme.danger-action;
                     CallButton {
-                        icon: @image-url("../../assets/phone-slash.svg");
-                        label: root.leave_label;
+                        icon: root.watching_focused_stream ? @image-url("../../assets/stop-stream.svg") : @image-url("../../assets/phone-slash.svg");
+                        label: root.watching_focused_stream ? "Stop Watching" : root.leave_label;
                         danger: true;
                         button-width: 60px;
                         enabled: root.shown;
-                        clicked => { root.leave(); }
+                        clicked => {
+                            if root.watching_focused_stream {
+                                root.stop_watching();
+                            } else {
+                                root.leave();
+                            }
+                        }
                     }
                 }
             }
