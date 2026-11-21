@@ -1769,7 +1769,10 @@ export component AppWindow inherits Window {
                         clip: true;
 
                         VerticalBox {
-                            padding: 8px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            padding-top: 56px;
+                            padding-bottom: 8px;
                             spacing: 0px;
 
                             ListView {
@@ -1794,7 +1797,7 @@ export component AppWindow inherits Window {
                                         ? 0px
                                         : (is_streaming_attached
                                             ? (is_this_stream_focused
-                                                ? Math.max(360px, voice_stage_container.height - 52px)
+                                                ? Math.max(360px, voice_stage_container.height - 72px)
                                                 : Math.max(200px, Math.min(280px, (voice_stage_container.height - 80px) * 0.5)))
                                             : 76px);
                                     clip: true;
@@ -1857,7 +1860,7 @@ export component AppWindow inherits Window {
                                         stream_top_bar := Rectangle {
                                             visible: root.call_chrome_visible;
                                             x: 8px;
-                                            y: 50px;
+                                            y: 8px;
                                             width: parent.width - 16px;
                                             height: 32px;
                                             background: transparent;
