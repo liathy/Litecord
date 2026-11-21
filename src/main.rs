@@ -3875,6 +3875,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Close a one-to-one DM (the X on its row)
+    let guilds_map_close_dm = Arc::clone(&guilds_map);
+    let active_guild_close_dm = Arc::clone(&active_guild_id);
+    let active_channel_close_dm = Arc::clone(&active_channel_id);
+    let app_weak_close_dm = app_weak.clone();
+    let http_client_close_dm = Arc::clone(&http_client);
+    app.on_close_dm(move |channel_id: SharedString| {
+        let cid = channel_id.to_string();
+        let Some(http) = http_client_close_dm.lock().unwrap().as_ref().cloned() else { return };
+        let Some(ui) = app_weak_close_dm.upgrade() else { return };
+
+        let rows: Vec<ChannelItem> = ui.get_channels().iter().filter(|c| c.id != channel_id).collect();
+        ui.set_channels(std::rc::Rc::new(slint::VecModel::from(rows)).into());
+        ui.set_total_dm_unread_count(crate::ui::helpers::clear_dm_unread(&cid));
+        if let Some(dms) = guilds_map_close_dm.lock().unwrap().get_mut("@me") {
+            dms.channels.retain(|c| c.id != cid);
+        }
+        crate::ui::dm_close::mark_closed(&cid);
+
+        let was_open = {
+            let mut active = active_channel_close_dm.lock().unwrap();
+            let open = *active == cid;
+            if open {
+                active.clear();
+            }
+            open
+        };
+        if was_open {
+            ui.set_active_channel_id("".into());
+            ui.set_active_channel_name("".into());
+            ui.set_messages(std::rc::Rc::new(slint::VecModel::<ChatMessage>::default()).into());
+        }
+
+        let (app_w, guilds, active_g, active_c) = (
+            app_weak_close_dm.clone(),
+            Arc::clone(&guilds_map_close_dm),
+            Arc::clone(&active_guild_close_dm),
+            Arc::clone(&active_channel_close_dm),
+        );
+        tokio::spawn(async move {
+            let closed = http.close_dm(&cid).await;
+            if let Err(e) = &closed {
+                warn!("Não foi possível fechar a DM {}: {}", cid, e);
+                crate::ui::dm_close::take_closed(&cid);
+            }
+            // Opens the next conversation, or brings the row back if closing failed.
+            let showing_dms = *active_g.lock().unwrap() == "@me";
+            if showing_dms && (was_open || closed.is_err()) {
+                fetch_and_populate_dms(&http, app_w, guilds, active_g, active_c).await;
+            }
+        });
+    });
+
     // Select Channel Callback
     let guilds_map_chan_select = Arc::clone(&guilds_map);
     let active_guild_chan_select = Arc::clone(&active_guild_id);
@@ -4788,6 +4841,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Deduplicação: ignora se esta mensagem já foi processada anteriormente
                     if !id.is_empty() && crate::ui::helpers::mark_msg_seen(&id) {
                         continue;
+                    }
+
+                    // A new message brings a closed DM back, as on Discord.
+                    if crate::ui::dm_close::take_closed(&channel_id) {
+                        if let Some(dms) = guilds_map_inner.lock().unwrap().get_mut("@me") {
+                            dms.channels.insert(0, crate::gateway::ChannelData {
+                                id: channel_id.clone(),
+                                name: "DM".to_string(),
+                                is_voice: false,
+                                is_category: false,
+                                parent_id: None,
+                                position: 0,
+                            });
+                        }
+                        if *active_guild_inner.lock().unwrap() == "@me" {
+                            let app_w = app_weak_inner.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = app_w.upgrade() {
+                                    ui.invoke_select_guild("@me".into());
+                                }
+                            });
+                        }
                     }
 
                     let current_active_ch = active_channel_inner.lock().unwrap().clone();

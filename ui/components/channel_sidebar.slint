@@ -21,6 +21,7 @@ export struct ChannelItem {
     has_parent: bool,
     is_collapsed: bool,
     has_separator: bool,
+    can_close: bool,    // one-to-one DM: shows the X on hover
     unread_count: int,  // Badge de mensagens não lidas (0 = sem badge)
     // Leading emoji of the name, drawn as a colour image; `label` is the rest of the name.
     emoji_id: string,
@@ -55,6 +56,7 @@ export component ChannelSidebar inherits Rectangle {
     in property <image> user_avatar_img;
     in property <bool> is_screen_sharing: false;
     callback select_channel(string);
+    callback close_dm(string);
     callback toggle_category(string);
     callback leave_voice();
     callback open_stream_modal();
@@ -433,6 +435,30 @@ export component ChannelSidebar inherits Rectangle {
                                         root.select_channel(channel.is_voice_member ? channel.parent_channel_id : channel.id);
                                     }
                                 }
+                            }
+                        }
+
+                        // Close button of a DM, shown while the pointer is on its row.
+                        if channel.can_close: Rectangle {
+                            x: parent.width - self.width - 6px;
+                            y: (parent.height - self.height) / 2;
+                            width: 20px;
+                            height: 20px;
+                            border-radius: 4px;
+                            visible: touch_area.has-hover || close_dm_ta.has-hover;
+                            background: close_dm_ta.has-hover ? AppTheme.interactive-selected : AppTheme.interactive-hover;
+
+                            Image {
+                                source: @image-url("../../assets/x.svg");
+                                width: 12px;
+                                height: 12px;
+                                colorize: close_dm_ta.has-hover ? AppTheme.text-strong : AppTheme.text-muted;
+                                image-fit: contain;
+                            }
+
+                            close_dm_ta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.close_dm(channel.id); }
                             }
                         }
                     }

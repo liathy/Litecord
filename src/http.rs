@@ -463,6 +463,26 @@ impl DiscordHttpClient {
         }
     }
 
+    /// Hides a one-to-one DM. The channel's type is checked first, because the same
+    /// request on a group DM would leave the group.
+    pub async fn close_dm(&self, channel_id: &str) -> Result<(), String> {
+        let url = format!("https://discord.com/api/v9/channels/{}", channel_id);
+        let response = self.client.get(&url).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if !response.status().is_success() {
+            return Err(format!("Status HTTP {}", response.status()));
+        }
+        let channel: serde_json::Value = response.json().await.map_err(|e| format!("JSON: {:?}", e))?;
+        if !crate::ui::dm_close::is_closable(channel["type"].as_u64().unwrap_or(u64::MAX)) {
+            return Err("Only one-to-one DMs can be closed".to_string());
+        }
+        let response = self.client.delete(&url).send().await.map_err(|e| format!("Erro HTTP: {:?}", e))?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("Status HTTP {}", response.status()))
+        }
+    }
+
     pub async fn stop_ringing_dm_call(&self, channel_id: &str) -> Result<(), String> {
         let url = format!("https://discord.com/api/v9/channels/{}/call/stop-ringing", channel_id);
         let payload = json!({ "recipients": serde_json::Value::Null });
