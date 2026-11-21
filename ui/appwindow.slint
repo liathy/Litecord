@@ -9,7 +9,7 @@ import { ChannelSidebar, ChannelItem } from "components/channel_sidebar.slint";
 import { MemberListPanel, MemberRow, ProfileBadge, ProfileCard, ProfileRole, UserContextMenu, UserMenuItem } from "components/member_list.slint";
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
-import { CallChrome } from "components/call_chrome.slint";
+import { CallChrome, StreamVolumeControl } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
 import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow, ConnectionDetails } from "components/channel_tools.slint";
 import { FriendsPage, FriendRow } from "components/friends_view.slint";
@@ -99,6 +99,7 @@ struct GuildItem {
     is_expanded: bool,
     contains_active: bool,
     previews: [image],
+    is_muted: bool,
 }
 
 struct VoiceParticipant {
@@ -959,10 +960,17 @@ export component AppWindow inherits Window {
     in-out property <bool> is_popout_intangible: false;
     in-out property <bool> is_maximized: false;
     callback set_stream_volume(string, float);
+    callback refresh_stream_volume();
+    in-out property <float> active_stream_volume: 1.0;
+    in-out property <bool> fullscreen_volume_active: false;
+    property <string> volume_watch: root.active_stream_user_id;
+    changed volume_watch => { root.refresh_stream_volume(); }
     callback toggle_popout_intangible();
 
     in-out property <[GuildItem]> guilds: [];
     in-out property <[ChannelItem]> channels: [];
+    callback channels_changed();
+    changed channels => { root.channels_changed(); }
     in property <[image]> avatar_pool: [];
     in property <[image]> channel_emoji_pool: [];
     in property <[string]> avatar_pool_urls: [];
@@ -1741,7 +1749,7 @@ export component AppWindow inherits Window {
                                                 : ((guild.id == root.active_guild_id) ? AppTheme.accent : (guild_ta.has-hover ? AppTheme.accent : AppTheme.surface-chat));
                                             border-radius: (guild.id == root.active_guild_id || guild_ta.has-hover) ? 14px : 16px;
                                             clip: true;
-                                            opacity: (root.dragging_guild_idx == idx) ? 0.4 : 1.0;
+                                            opacity: (root.dragging_guild_idx == idx) ? 0.4 : (guild.is_muted && guild.id != root.active_guild_id && !guild_ta.has-hover ? 0.5 : 1.0);
                                             animate border-radius, background, opacity { duration: 150ms; easing: ease-out; }
 
                                             if guild.has_image: Image {
@@ -2242,75 +2250,6 @@ export component AppWindow inherits Window {
                                                                     font-size: TypeScale.caption;
                                                                     font-weight: 800;
                                                                     vertical-alignment: center;
-                                                                }
-                                                            }
-                                                        }
-
-                                                        // Stream Audio Volume Slider (only shown for remote stream cards when plenty of room >= 560px)
-                                                        if !(p.is_self && root.is_screen_sharing) && stream_top_bar.width >= 560px: Rectangle {
-                                                            background: AppTheme.backdrop;
-                                                            border-radius: 4px;
-                                                            height: 24px;
-                                                            HorizontalLayout {
-                                                                padding-left: 8px;
-                                                                padding-right: 8px;
-                                                                spacing: 6px;
-                                                                alignment: center;
-
-                                                                VerticalLayout {
-                                                                    alignment: center;
-                                                                    Image {
-                                                                        source: p.stream_volume <= 0.01 ? @image-url("../assets/volume-x.svg") : @image-url("../assets/speaker.svg");
-                                                                        width: 12px;
-                                                                        height: 12px;
-                                                                        colorize: p.stream_volume <= 0.01 ? AppTheme.danger : AppTheme.text-muted;
-                                                                        image-fit: contain;
-                                                                    }
-                                                                }
-
-                                                                VerticalLayout {
-                                                                    alignment: center;
-                                                                    Rectangle {
-                                                                        width: 55px;
-                                                                        height: 5px;
-                                                                        background: AppTheme.interactive-hover;
-                                                                        border-radius: 2.5px;
-
-                                                                        // Progress fill
-                                                                        Rectangle {
-                                                                            x: 0;
-                                                                            y: 0;
-                                                                            width: parent.width * (p.stream_volume.clamp(0.0, 1.0));
-                                                                            height: 100%;
-                                                                            background: p.stream_volume <= 0.01 ? AppTheme.danger : AppTheme.accent;
-                                                                            border-radius: 2.5px;
-                                                                        }
-
-                                                                        TouchArea {
-                                                                            mouse-cursor: pointer;
-                                                                            clicked => {
-                                                                                let new_vol = (self.mouse-x / parent.width).clamp(0.0, 1.0);
-                                                                                root.set_stream_volume(p.user_id, new_vol);
-                                                                            }
-                                                                            moved => {
-                                                                                if self.pressed {
-                                                                                    let new_vol = (self.mouse-x / parent.width).clamp(0.0, 1.0);
-                                                                                    root.set_stream_volume(p.user_id, new_vol);
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                VerticalLayout {
-                                                                    alignment: center;
-                                                                    Text {
-                                                                        text: "Stream \{Math.round(p.stream_volume * 100)}%";
-                                                                        color: AppTheme.text-muted;
-                                                                        font-size: TypeScale.micro;
-                                                                        font-weight: 700;
-                                                                        vertical-alignment: center;
-                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -3141,6 +3080,9 @@ export component AppWindow inherits Window {
                         deafened: root.is_deafened;
                         sharing: root.is_screen_sharing;
                         has_stream: root.has_active_stream || root.is_screen_sharing;
+                        has_stream_audio: root.has_active_stream && root.active_stream_user_id != "" && root.active_stream_user_id != "self";
+                        stream_volume: root.active_stream_volume;
+                        set_stream_volume(value) => { root.set_stream_volume(root.active_stream_user_id, value); }
                         members_collapsed: root.voice_members_collapsed;
                         strip_visible: root.focused_stream_uid != "" && !root.voice_members_collapsed && root.voice_participants.length > 1;
                         web_share_active: root.web_share_active;
@@ -7217,61 +7159,69 @@ export component AppWindow inherits Window {
             image-fit: contain;
         }
 
-        // Exit bar
+        property <bool> fs_controls: true;
+        fs_idle := Timer {
+            interval: 2500ms;
+            running: fs_controls && !root.fullscreen_volume_active && !fs_exit_ta.has-hover;
+            triggered => { fs_controls = false; }
+        }
+        TouchArea {
+            mouse-cursor: fs_controls ? MouseCursor.default : MouseCursor.none;
+            changed mouse-x => { fs_controls = true; fs_idle.restart(); }
+            changed mouse-y => { fs_controls = true; fs_idle.restart(); }
+            double-clicked => { root.toggle_stream_fullscreen(); }
+        }
+
         Rectangle {
-            x: 0;
-            y: 0;
-            width: parent.width;
-            height: 44px;
-            background: AppTheme.surface-media-overlay-strong;
+            x: 16px;
+            y: 16px;
+            width: fs_name.preferred-width + 20px;
+            height: 32px;
+            visible: fs_controls;
+            border-radius: 6px;
+            background: AppTheme.backdrop-strong;
+            fs_name := Text {
+                text: root.remote_stream_fps != "" ? root.active_stream_user + "  •  " + root.remote_stream_fps : root.active_stream_user;
+                color: AppTheme.text-strong;
+                font-size: TypeScale.small;
+                font-weight: 600;
+            }
+        }
 
-            HorizontalLayout {
-                padding-left: 16px;
-                padding-right: 12px;
-                spacing: 8px;
-
-                VerticalLayout {
-                    alignment: center;
-                    Text {
-                        text: root.active_stream_user;
-                        color: AppTheme.text-strong;
-                        font-size: TypeScale.title;
-                        font-weight: 700;
-                    }
+        Rectangle {
+            x: parent.width - self.width - 16px;
+            y: parent.height - self.height - 16px;
+            width: fs_buttons.preferred-width + 8px;
+            height: 52px;
+            visible: fs_controls;
+            border-radius: 10px;
+            background: AppTheme.surface-elevated;
+            border-width: 1px;
+            border-color: AppTheme.border-subtle;
+            fs_buttons := HorizontalLayout {
+                x: 4px;
+                y: 4px;
+                height: 44px;
+                spacing: 2px;
+                if !showing_self && root.active_stream_user_id != "": StreamVolumeControl {
+                    volume: root.active_stream_volume;
+                    changed active => { root.fullscreen_volume_active = self.active; }
+                    set_volume(value) => { root.set_stream_volume(root.active_stream_user_id, value); }
                 }
-
-                Rectangle { horizontal-stretch: 1; }
-
-                VerticalLayout {
-                    alignment: center;
-                    Text {
-                        text: root.remote_stream_fps;
-                        color: AppTheme.text-muted;
-                        font-size: TypeScale.caption;
-                        font-weight: 600;
-                    }
-                }
-
                 Rectangle {
-                    width: 34px;
-                    height: 28px;
-                    border-radius: 4px;
-                    background: fs_exit_ta.has-hover ? AppTheme.danger : AppTheme.backdrop;
-
-                    VerticalLayout {
-                        alignment: center;
-                        HorizontalLayout {
-                            alignment: center;
-                            Image {
-                                source: @image-url("../assets/chrome-restore.svg");
-                                width: 12px;
-                                height: 12px;
-                                colorize: AppTheme.text-on-accent;
-                                image-fit: contain;
-                            }
-                        }
+                    width: 44px;
+                    height: 44px;
+                    border-radius: 6px;
+                    accessible-role: button;
+                    accessible-label: "Exit Full Screen";
+                    background: fs_exit_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                    Image {
+                        width: 24px;
+                        height: 24px;
+                        source: @image-url("../assets/fullscreen-exit.svg");
+                        colorize: fs_exit_ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary;
+                        image-fit: contain;
                     }
-
                     fs_exit_ta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => { root.toggle_stream_fullscreen(); }

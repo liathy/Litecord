@@ -62,7 +62,7 @@ pub fn install(ui: &AppWindow) {
     *APP.lock().unwrap_or_else(|e| e.into_inner()) = Some(ui.as_weak());
 }
 
-fn schedule_refresh() {
+pub(crate) fn schedule_refresh() {
     if REFRESH_PENDING.swap(true, Ordering::AcqRel) {
         return;
     }
@@ -74,6 +74,8 @@ fn schedule_refresh() {
         REFRESH_PENDING.store(false, Ordering::Release);
         if let Some(ui) = app.upgrade() {
             refresh_dms(&ui);
+            crate::ui::channel_tools::apply_mutes(&ui);
+            crate::ui::guild_folders::refresh_mutes(&ui);
         }
     });
 }

@@ -764,6 +764,7 @@ pub async fn fetch_and_populate_channels(
     if let Some(g_data) = guilds_map.lock().unwrap().get_mut(guild_id) {
         g_data.channels = channels_data.clone();
         gateway::channel_names::remember(guild_id, channels_data.iter().map(|c| (c.id.as_str(), c.name.as_str())));
+        crate::ui::notifications::remember_parents(channels_data.iter().filter_map(|c| Some((c.id.as_str(), c.parent_id.as_deref()?))));
     }
 
     if channels_differ || cached.is_empty() {

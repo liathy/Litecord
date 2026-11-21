@@ -41,6 +41,9 @@ pub fn toggle_deafen(muted: bool, deafened: bool) -> (bool, bool) {
 
 /// Shows a stream's volume on that person's tile only.
 pub fn show_stream_volume(ui: &AppWindow, user_id: &str, volume: f32) {
+    if ui.get_active_stream_user_id() == user_id {
+        ui.set_active_stream_volume(volume.clamp(0.0, 1.0));
+    }
     let model = ui.get_voice_participants();
     for row in 0..model.row_count() {
         if let Some(mut participant) = model.row_data(row) {

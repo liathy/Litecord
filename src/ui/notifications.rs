@@ -21,10 +21,16 @@ struct GuildMutes {
     muted: bool,
     suppress_everyone: bool,
     channels: HashSet<String>,
+    /// Muted by the user, as opposed to only set to "Nothing".
+    is_muted: bool,
+    muted_channels: HashSet<String>,
+    levels: HashMap<String, u64>,
 }
 
 static SETTINGS: Mutex<Option<HashMap<String, GuildMutes>>> = Mutex::new(None);
 static OPEN_CHANNEL: Mutex<String> = Mutex::new(String::new());
+/// Channel to category, so a muted category also mutes what is inside it.
+static PARENTS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 static SENDER: OnceLock<SyncSender<(String, String)>> = OnceLock::new();
 
 fn mute_is_active(entry: &Value, now: chrono::DateTime<chrono::Utc>) -> bool {
@@ -49,12 +55,23 @@ fn parse_entry(entry: &Value, now: chrono::DateTime<chrono::Utc>) -> (String, Gu
         .filter(|channel| silences(channel, now))
         .filter_map(|channel| channel["channel_id"].as_str().map(str::to_owned))
         .collect();
+    let overrides = || entry["channel_overrides"].as_array().into_iter().flatten();
+    let muted_channels = overrides()
+        .filter(|channel| mute_is_active(channel, now))
+        .filter_map(|channel| channel["channel_id"].as_str().map(str::to_owned))
+        .collect();
+    let levels = overrides()
+        .filter_map(|channel| Some((channel["channel_id"].as_str()?.to_owned(), channel["message_notifications"].as_u64()?)))
+        .collect();
     (
         entry["guild_id"].as_str().unwrap_or("").to_owned(),
         GuildMutes {
             muted: silences(entry, now),
             suppress_everyone: entry["suppress_everyone"].as_bool().unwrap_or(false),
             channels,
+            is_muted: mute_is_active(entry, now),
+            muted_channels,
+            levels,
         },
     )
 }
@@ -65,6 +82,7 @@ pub fn load_settings(settings: &Value) {
     let list = settings.as_array().or_else(|| settings["entries"].as_array());
     let parsed = list.into_iter().flatten().map(|entry| parse_entry(entry, now)).collect();
     *SETTINGS.lock().unwrap_or_else(|e| e.into_inner()) = Some(parsed);
+    crate::ui::presence::schedule_refresh();
 }
 
 /// USER_GUILD_SETTINGS_UPDATE: one server's settings changed.
@@ -75,6 +93,92 @@ pub fn update_settings(entry: &Value) {
         .unwrap_or_else(|e| e.into_inner())
         .get_or_insert_with(HashMap::new)
         .insert(guild, mutes);
+    crate::ui::presence::schedule_refresh();
+}
+
+/// DMs are stored under an empty server id.
+fn settings_key(guild: &str) -> &str {
+    if guild == "@me" { "" } else { guild }
+}
+
+pub fn remember_parents<'a>(pairs: impl Iterator<Item = (&'a str, &'a str)>) {
+    let mut store = PARENTS.lock().unwrap_or_else(|e| e.into_inner());
+    let map = store.get_or_insert_with(HashMap::new);
+    for (channel, parent) in pairs {
+        map.insert(channel.to_owned(), parent.to_owned());
+    }
+}
+
+fn parent_of(channel: &str) -> Option<String> {
+    PARENTS.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(channel).cloned()
+}
+
+fn holds(set: &HashSet<String>, channel: &str, parent: Option<&str>) -> bool {
+    set.contains(channel) || parent.is_some_and(|id| set.contains(id))
+}
+
+pub fn is_guild_muted(guild: &str) -> bool {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(settings_key(guild)))
+        .is_some_and(|entry| entry.is_muted)
+}
+
+pub fn is_channel_muted(guild: &str, channel: &str) -> bool {
+    let parent = parent_of(channel);
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(settings_key(guild)))
+        .is_some_and(|entry| holds(&entry.muted_channels, channel, parent.as_deref()))
+}
+
+/// Muted in any server or DM: new messages there don't count as unread badges.
+pub fn is_muted_anywhere(channel: &str) -> bool {
+    let parent = parent_of(channel);
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|map| map.values().any(|entry| holds(&entry.muted_channels, channel, parent.as_deref())))
+}
+
+pub fn channel_level(guild: &str, channel: &str) -> u64 {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(settings_key(guild))?.levels.get(channel).copied())
+        .unwrap_or(3)
+}
+
+/// Shows a change at once; Discord's settings update confirms it afterwards.
+pub fn set_local_mute(guild: &str, channel: &str, muted: bool) {
+    let mut store = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = store.get_or_insert_with(HashMap::new).entry(settings_key(guild).to_owned()).or_default();
+    if muted {
+        entry.muted_channels.insert(channel.to_owned());
+        entry.channels.insert(channel.to_owned());
+    } else {
+        entry.muted_channels.remove(channel);
+        if entry.levels.get(channel) != Some(&NOTHING) {
+            entry.channels.remove(channel);
+        }
+    }
+}
+
+pub fn set_local_level(guild: &str, channel: &str, level: u64) {
+    let mut store = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = store.get_or_insert_with(HashMap::new).entry(settings_key(guild).to_owned()).or_default();
+    entry.levels.insert(channel.to_owned(), level);
+    if level == NOTHING {
+        entry.channels.insert(channel.to_owned());
+    } else if !entry.muted_channels.contains(channel) {
+        entry.channels.remove(channel);
+    }
 }
 
 pub fn set_open_channel(channel_id: &str) {
@@ -139,6 +243,9 @@ pub fn on_message(message: &Value, my_id: &str, author: &str, text: &str) {
     let open = *OPEN_CHANNEL.lock().unwrap_or_else(|e| e.into_inner()) == message["channel_id"].as_str().unwrap_or("");
     let visible = crate::ui::helpers::APP_IS_VISIBLE.load(Ordering::Relaxed);
     let looking_at_it = open && visible && window_is_in_front();
+    if is_muted_anywhere(message["channel_id"].as_str().unwrap_or("")) {
+        return;
+    }
     let notify = {
         let settings = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
         let empty = HashMap::new();
@@ -269,6 +376,26 @@ mod tests {
     fn an_expired_mute_no_longer_applies() {
         let expired = settings(json!({ "guild_id": "9", "muted": true, "mute_config": { "end_time": "2020-01-01T00:00:00+00:00" } }));
         assert!(should_notify(&message(Some("9"), &["1"]), "1", &expired, false));
+    }
+
+    #[test]
+    fn reads_who_is_muted_and_notification_levels() {
+        let now = chrono::Utc::now();
+        let (_, entry) = parse_entry(&json!({ "guild_id": "9", "muted": true, "channel_overrides": [
+            { "channel_id": "1", "muted": true },
+            { "channel_id": "2", "muted": false, "message_notifications": 2 },
+            { "channel_id": "3", "muted": true, "mute_config": { "end_time": "2020-01-01T00:00:00+00:00" } },
+        ] }), now);
+        assert!(entry.is_muted);
+        assert!(entry.muted_channels.contains("1") && !entry.muted_channels.contains("2") && !entry.muted_channels.contains("3"));
+        assert_eq!(entry.levels.get("2"), Some(&2));
+    }
+
+    #[test]
+    fn a_muted_category_covers_its_channels() {
+        let set = HashSet::from(["7".to_owned()]);
+        assert!(holds(&set, "1", Some("7")));
+        assert!(!holds(&set, "1", Some("8")));
     }
 
     #[test]

@@ -31,6 +31,7 @@ export struct ChannelItem {
     has_status: bool,
     status_color: color,
     activity: string,
+    is_muted: bool,
 }
 
 
@@ -385,7 +386,7 @@ export component ChannelSidebar inherits Rectangle {
                             }
                             Text {
                                 text: channel.emoji_id != "" ? channel.label : channel.name;
-                                color: touch_area.has_hover ? AppTheme.text-strong : (root.row_selected(channel.id, channel.is_voice, channel.name) ? AppTheme.text-strong : (channel.unread_count > 0 ? AppTheme.text-strong : AppTheme.text-primary));
+                                color: touch_area.has_hover ? AppTheme.text-strong : (root.row_selected(channel.id, channel.is_voice, channel.name) ? AppTheme.text-strong : (channel.is_muted ? AppTheme.text-faint : (channel.unread_count > 0 ? AppTheme.text-strong : AppTheme.text-primary)));
                                 font-size: TypeScale.body;
                                 font-weight: channel.unread_count > 0 ? 700 : 600;
                                 horizontal-alignment: left;
@@ -396,7 +397,7 @@ export component ChannelSidebar inherits Rectangle {
                             }
 
                             // Unread message count badge (red pill for DMs)
-                            if channel.unread_count > 0 && channel.id != root.active_channel_id : VerticalLayout {
+                            if channel.unread_count > 0 && !channel.is_muted && channel.id != root.active_channel_id : VerticalLayout {
                                 alignment: center;
                                 Rectangle {
                                     width: channel.unread_count > 99 ? 28px : (channel.unread_count > 9 ? 24px : 20px);

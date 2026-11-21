@@ -1,8 +1,6 @@
 //! The channel header panel: pinned messages, threads, notification level and search.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 
 use reqwest::Method;
 use serde_json::{json, Value};
@@ -22,7 +20,6 @@ const NOTIFICATION_LEVELS: [(u64, &str, &str); 4] = [
 ];
 
 static REQUEST: AtomicU64 = AtomicU64::new(0);
-static LEVELS: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
 
 fn encode_query(text: &str) -> String {
     text.bytes()
@@ -118,10 +115,6 @@ fn notification_rows(level: u64) -> Vec<PanelRow> {
         .collect()
 }
 
-fn level_of(channel: &str) -> u64 {
-    LEVELS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|map| map.get(channel).copied()).unwrap_or(3)
-}
-
 fn finish(ui: &AppWindow, request: u64, rows: Result<Vec<PanelRow>, String>, empty: &str) {
     if REQUEST.load(Ordering::SeqCst) != request {
         return;
@@ -156,7 +149,7 @@ fn open(ui: &AppWindow, ctx: &Context, kind: &str) {
     let channel = ui.get_active_channel_id().to_string();
     let guild = ui.get_active_guild_id().to_string();
     match kind {
-        "notifications" => ui.set_channel_panel_rows(ModelRc::new(VecModel::from(notification_rows(level_of(&channel))))),
+        "notifications" => ui.set_channel_panel_rows(ModelRc::new(VecModel::from(notification_rows(crate::ui::notifications::channel_level(&guild, &channel))))),
         "search" => ui.set_channel_panel_status("Type something and press Enter.".into()),
         "pins" | "threads" => {
             let Some(http) = ctx.http.lock().unwrap().as_ref().cloned() else { return };
@@ -205,15 +198,15 @@ fn set_level(ui: &AppWindow, ctx: &Context, level: u64) {
         return;
     }
     let Some(http) = ctx.http.lock().unwrap().as_ref().cloned() else { return };
-    let previous = level_of(&channel);
-    LEVELS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(channel.clone(), level);
+    let previous = crate::ui::notifications::channel_level(&guild, &channel);
+    crate::ui::notifications::set_local_level(&guild, &channel, level);
     ui.set_channel_panel_rows(ModelRc::new(VecModel::from(notification_rows(level))));
     ui.set_channel_panel_status("".into());
     let app = ui.as_weak();
     tokio::spawn(async move {
         let body = json!({ "channel_overrides": { channel.clone(): { "message_notifications": level } } });
         if let Err(error) = http.discord_call(Method::PATCH, &format!("/users/@me/guilds/{guild}/settings"), Some(body)).await {
-            LEVELS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).insert(channel, previous);
+            crate::ui::notifications::set_local_level(&guild, &channel, previous);
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(ui) = app.upgrade() {
                     if ui.get_channel_panel() == "notifications" {

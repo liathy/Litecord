@@ -244,6 +244,7 @@ fn render(ui: &AppWindow, rail: &Rail) {
             Row::Folder(index) => folder_row(rail, index, &active),
             Row::Guild { guild, folder } => {
                 let mut item = rail.guilds[guild].clone();
+                item.is_muted = crate::ui::notifications::is_guild_muted(&item.id);
                 if let Some(index) = folder {
                     item.in_folder = true;
                     item.folder_color = folder_color(&rail.folders[index]);
@@ -254,6 +255,15 @@ fn render(ui: &AppWindow, rail: &Rail) {
         .collect();
     ui.set_guild_drag_enabled(!has_real_folders(&rail.folders));
     ui.set_guilds(ModelRc::new(VecModel::from(rows)));
+}
+
+/// Discord's mute settings changed.
+pub fn refresh_mutes(ui: &AppWindow) {
+    RAIL.with_borrow(|rail| {
+        if !rail.guilds.is_empty() {
+            render(ui, rail);
+        }
+    });
 }
 
 /// Every server of the account, including those inside closed folders.

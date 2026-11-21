@@ -142,8 +142,8 @@ export component ChannelMenu inherits Rectangle {
             padding: 6px;
             spacing: 1px;
             if !root.is_category: MenuRow { text: "Mark As Read"; clicked => { root.action("mark_read", root.channel_id); } }
-            if root.in_server && !root.is_category: MenuRow {
-                text: root.muted ? "Unmute Channel" : "Mute Channel";
+            MenuRow {
+                text: root.is_category ? (root.muted ? "Unmute Category" : "Mute Category") : (root.in_server ? (root.muted ? "Unmute Channel" : "Mute Channel") : (root.muted ? "Unmute Conversation" : "Mute Conversation"));
                 clicked => { root.action("mute", root.channel_id); }
             }
             if root.is_voice: MenuRow { text: "Open Chat"; clicked => { root.action("open_chat", root.channel_id); } }

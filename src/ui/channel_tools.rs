@@ -1,7 +1,7 @@
 //! Channel actions: hover buttons, right-click menu, Create Channel, invites and settings.
 //! Options are hidden by permission, and Discord stays the judge of every change.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use reqwest::Method;
@@ -20,7 +20,6 @@ const VIEW_CHANNEL: u64 = 1 << 10;
 const INVITE_SECONDS: u64 = 604_800;
 const MAX_SLOWMODE: u32 = 21_600;
 
-static MUTED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// The channel as Discord last sent it, used to keep its other permission rules on save.
 static OPEN_CHANNEL: Mutex<Option<Value>> = Mutex::new(None);
 
@@ -209,33 +208,39 @@ fn mark_read(ui: &AppWindow, ctx: &Context, id: &str) {
     });
 }
 
+/// Dims every muted row, whichever code path built the list.
+pub fn apply_mutes(ui: &AppWindow) {
+    let guild = ui.get_active_guild_id().to_string();
+    let rows = ui.get_channels();
+    for index in 0..rows.row_count() {
+        let Some(mut row) = rows.row_data(index) else { continue };
+        if row.is_voice_member {
+            continue;
+        }
+        let muted = crate::ui::notifications::is_channel_muted(&guild, row.id.as_str());
+        if row.is_muted != muted {
+            row.is_muted = muted;
+            rows.set_row_data(index, row);
+        }
+    }
+}
+
 fn toggle_mute(ui: &AppWindow, ctx: &Context, id: &str) {
     let Some(http) = ctx.client() else { return };
     let guild = ctx.guild();
-    let muted = {
-        let mut store = MUTED.lock().unwrap_or_else(|e| e.into_inner());
-        let set = store.get_or_insert_with(HashSet::new);
-        if set.remove(id) {
-            false
-        } else {
-            set.insert(id.to_owned());
-            true
-        }
-    };
-    ui.set_channel_menu_muted(muted);
+    let muted = !crate::ui::notifications::is_channel_muted(&guild, id);
+    crate::ui::notifications::set_local_mute(&guild, id, muted);
+    apply_mutes(ui);
     let (app, id) = (ui.as_weak(), id.to_owned());
     tokio::spawn(async move {
         let body = json!({ "channel_overrides": { id.clone(): { "muted": muted } } });
         let path = format!("/users/@me/guilds/{guild}/settings");
         if http.discord_call(Method::PATCH, &path, Some(body)).await.is_err() {
-            if let Some(set) = MUTED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-                if muted {
-                    set.remove(&id);
-                } else {
-                    set.insert(id);
-                }
-            }
-            on_ui(&app, move |ui| ui.set_channel_menu_muted(!muted));
+            crate::ui::notifications::set_local_mute(&guild, &id, !muted);
+            on_ui(&app, move |ui| {
+                apply_mutes(ui);
+                ui.set_titlebar_error("Couldn't change the mute setting.".into());
+            });
         }
     });
 }
@@ -603,7 +608,7 @@ fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
             ui.set_channel_menu_is_voice(channel.is_voice);
             ui.set_channel_menu_is_category(channel.is_category);
             ui.set_channel_menu_in_server(ctx.guild() != "@me");
-            ui.set_channel_menu_muted(MUTED.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|set| set.contains(id)));
+            ui.set_channel_menu_muted(crate::ui::notifications::is_channel_muted(&ctx.guild(), id));
             ui.set_channel_menu_x(x);
             ui.set_channel_menu_y(y);
             ui.set_channel_menu_open(true);
@@ -649,6 +654,12 @@ fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
 }
 
 pub fn install(ui: &AppWindow, ctx: Context) {
+    let app_mutes = ui.as_weak();
+    ui.on_channels_changed(move || {
+        if let Some(ui) = app_mutes.upgrade() {
+            apply_mutes(&ui);
+        }
+    });
     let app = ui.as_weak();
     ui.on_channel_action(move |name, id, x, y| {
         if let Some(ui) = app.upgrade() {

@@ -1502,6 +1502,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_toggle_stream_fullscreen(move || {
         if let Some(ui) = app_weak_fs.upgrade() {
             let next = !ui.get_is_stream_fullscreen();
+            ui.set_fullscreen_volume_active(false);
             ui.set_is_stream_fullscreen(next);
             // Ask the window manager for real fullscreen (borderless). The Slint
             // overlay already covers the app, so a failure here is cosmetic.
@@ -1684,6 +1685,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Some(ui) = app_weak_stream_vol.upgrade() {
             crate::ui::voice_flags::show_stream_volume(&ui, uid_str.as_str(), vol);
+        }
+    });
+    let app_weak_stream_vol_sync = app_weak.clone();
+    app.on_refresh_stream_volume(move || {
+        if let Some(ui) = app_weak_stream_vol_sync.upgrade() {
+            if let Ok(uid) = ui.get_active_stream_user_id().parse::<u64>() {
+                ui.set_active_stream_volume(screen_capture::audio_loopback::get_stream_volume(uid).clamp(0.0, 1.0));
+            }
         }
     });
 
@@ -5231,6 +5240,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         // Mensagem de outro canal/usuário — incrementa badge de não lidos
+                        if crate::ui::notifications::is_muted_anywhere(&channel_id) {
+                            continue;
+                        }
                         if crate::ui::helpers::is_dm_channel(&channel_id, &guilds_map_inner) {
                             show_dm_total(crate::ui::helpers::inc_dm_unread(&channel_id));
                         }
