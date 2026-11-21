@@ -1,0 +1,276 @@
+import { LineEdit, ListView } from "std-widgets.slint";
+import { AppTheme, TypeScale } from "../theme.slint";
+
+export struct FriendRow {
+    id: string,
+    name: string,
+    username: string,
+    detail: string,
+    avatar_text: string,
+    avatar_url: string,
+    avatar_slot: int,
+    status_color: color,
+    kind: int,
+}
+
+component FriendsTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <int> badge: 0;
+    callback clicked();
+    height: 28px;
+    width: tab_row.preferred-width + 20px;
+    border-radius: 6px;
+    background: root.selected ? AppTheme.interactive-selected : (ta.has-hover ? AppTheme.interactive-hover : transparent);
+    animate background { duration: 90ms; easing: ease-out; }
+    tab_row := HorizontalLayout {
+        x: 10px;
+        spacing: 6px;
+        Text {
+            text: root.text;
+            color: root.selected || ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary;
+            font-size: TypeScale.body;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if root.badge > 0: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 16px;
+                border-radius: 8px;
+                background: AppTheme.danger-action;
+                Text {
+                    text: root.badge;
+                    color: AppTheme.text-on-accent;
+                    font-size: TypeScale.micro;
+                    font-weight: 700;
+                }
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component RoundAction inherits Rectangle {
+    in property <image> icon;
+    in property <bool> danger: false;
+    in property <string> label;
+    callback clicked();
+    width: 34px;
+    height: 34px;
+    border-radius: 17px;
+    accessible-role: button;
+    accessible-label: root.label;
+    background: ta.has-hover ? AppTheme.interactive-selected : AppTheme.surface-elevated;
+    animate background { duration: 90ms; easing: ease-out; }
+    Image {
+        width: 18px;
+        height: 18px;
+        source: root.icon;
+        colorize: root.danger && ta.has-hover ? AppTheme.danger : (ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary);
+        image-fit: contain;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component FriendsPage inherits Rectangle {
+    in property <[FriendRow]> rows;
+    in property <[image]> avatar_pool;
+    in property <[string]> avatar_pool_urls;
+    in property <string> tab;
+    in property <int> pending_count;
+    in property <bool> empty;
+    in property <string> status;
+    in-out property <string> query;
+    in-out property <string> add_name;
+    callback action(string, string);
+
+    background: AppTheme.surface-chat;
+    TouchArea { }
+
+    VerticalLayout {
+        Rectangle {
+            height: 44px;
+            background: AppTheme.surface-sidebar;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 6px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 20px;
+                        height: 20px;
+                        source: @image-url("../../assets/users.svg");
+                        colorize: AppTheme.text-muted;
+                    }
+                }
+                Text {
+                    text: "Friends";
+                    color: AppTheme.text-strong;
+                    font-size: TypeScale.title;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { width: 10px; }
+                VerticalLayout { alignment: center; FriendsTab { text: "Online"; selected: root.tab == "online"; clicked => { root.action("tab", "online"); } } }
+                VerticalLayout { alignment: center; FriendsTab { text: "All"; selected: root.tab == "all"; clicked => { root.action("tab", "all"); } } }
+                VerticalLayout { alignment: center; FriendsTab { text: "Pending"; badge: root.pending_count; selected: root.tab == "pending"; clicked => { root.action("tab", "pending"); } } }
+                VerticalLayout { alignment: center; FriendsTab { text: "Blocked"; selected: root.tab == "blocked"; clicked => { root.action("tab", "blocked"); } } }
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 28px;
+                        width: add_label.preferred-width + 20px;
+                        border-radius: 6px;
+                        background: root.tab == "add" ? transparent : (add_ta.has-hover ? AppTheme.accent-hover : AppTheme.accent);
+                        add_label := Text {
+                            text: "Add Friend";
+                            color: root.tab == "add" ? AppTheme.success : AppTheme.text-on-accent;
+                            font-size: TypeScale.body;
+                            font-weight: 600;
+                        }
+                        add_ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.action("tab", "add"); }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.tab == "add": VerticalLayout {
+            padding: 24px;
+            spacing: 8px;
+            alignment: start;
+            Text { text: "Add Friend"; color: AppTheme.text-strong; font-size: TypeScale.title; font-weight: 700; }
+            Text { text: "You can add friends with their Discord username."; color: AppTheme.text-muted; font-size: TypeScale.small; }
+            HorizontalLayout {
+                spacing: 8px;
+                LineEdit {
+                    text <=> root.add_name;
+                    placeholder-text: "Enter a username";
+                    accepted => { root.action("add", ""); }
+                }
+                Rectangle {
+                    width: send_label.preferred-width + 24px;
+                    height: 36px;
+                    border-radius: 6px;
+                    opacity: root.add_name != "" ? 1 : 0.5;
+                    background: send_ta.has-hover ? AppTheme.accent-hover : AppTheme.accent;
+                    send_label := Text {
+                        text: "Send Friend Request";
+                        color: AppTheme.text-on-accent;
+                        font-size: TypeScale.small;
+                        font-weight: 600;
+                    }
+                    send_ta := TouchArea {
+                        mouse-cursor: root.add_name != "" ? pointer : default;
+                        clicked => {
+                            if (root.add_name != "") { root.action("add", ""); }
+                        }
+                    }
+                }
+            }
+            if root.status != "": Text { text: root.status; color: AppTheme.text-secondary; font-size: TypeScale.small; wrap: word-wrap; }
+        }
+
+        if root.tab != "add": VerticalLayout {
+            vertical-stretch: 1;
+            padding: 16px;
+            spacing: 8px;
+            LineEdit {
+                text <=> root.query;
+                placeholder-text: "Search";
+                edited => { root.action("filter", ""); }
+            }
+            Text {
+                text: (root.tab == "online" ? "ONLINE" : (root.tab == "all" ? "ALL FRIENDS" : (root.tab == "pending" ? "PENDING" : "BLOCKED"))) + " — " + root.rows.length;
+                color: AppTheme.text-muted;
+                font-size: TypeScale.micro;
+                font-weight: 800;
+            }
+            if root.status != "": Text { text: root.status; color: AppTheme.danger; font-size: TypeScale.small; wrap: word-wrap; }
+            if root.empty && root.status == "": Text {
+                text: root.tab == "online" ? "No one's around right now." : (root.tab == "pending" ? "There are no pending friend requests." : (root.tab == "blocked" ? "You haven't blocked anyone." : "No friends to show."));
+                color: AppTheme.text-muted;
+                font-size: TypeScale.small;
+                horizontal-alignment: center;
+            }
+            ListView {
+                vertical-stretch: 1;
+                for row in root.rows: Rectangle {
+                    height: 60px;
+                    border-radius: 6px;
+                    background: row_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                    row_ta := TouchArea {
+                        mouse-cursor: row.kind == 1 ? pointer : default;
+                        clicked => {
+                            if (row.kind == 1) { root.action("message", row.id); }
+                        }
+                    }
+                    Rectangle {
+                        x: 8px;
+                        y: 12px;
+                        width: 36px;
+                        height: 36px;
+                        Rectangle {
+                            border-radius: 18px;
+                            background: AppTheme.interactive-selected;
+                            clip: true;
+                            Text { text: row.avatar_text; color: AppTheme.text-primary; font-size: TypeScale.body; font-weight: 700; }
+                            if row.avatar_url != "" && root.avatar_pool_urls[row.avatar_slot] == row.avatar_url: Image {
+                                source: root.avatar_pool[row.avatar_slot];
+                                width: 100%;
+                                height: 100%;
+                                image-fit: cover;
+                            }
+                        }
+                        if row.kind == 1: Rectangle {
+                            x: 25px;
+                            y: 25px;
+                            width: 12px;
+                            height: 12px;
+                            border-radius: 6px;
+                            border-width: 2px;
+                            border-color: AppTheme.surface-chat;
+                            background: row.status_color;
+                        }
+                    }
+                    VerticalLayout {
+                        x: 56px;
+                        width: parent.width - 170px;
+                        alignment: center;
+                        spacing: 2px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Text { text: row.name; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 600; overflow: elide; }
+                            Text { text: row.username; color: AppTheme.text-muted; font-size: TypeScale.caption; vertical-alignment: center; overflow: elide; }
+                        }
+                        Text { text: row.detail; color: AppTheme.text-secondary; font-size: TypeScale.caption; overflow: elide; }
+                    }
+                    HorizontalLayout {
+                        x: parent.width - self.preferred-width - 10px;
+                        y: 13px;
+                        height: 34px;
+                        spacing: 8px;
+                        if row.kind == 1: RoundAction { icon: @image-url("../../assets/message-square.svg"); label: "Message"; clicked => { root.action("message", row.id); } }
+                        if row.kind == 1: RoundAction { icon: @image-url("../../assets/x.svg"); label: "Remove Friend"; danger: true; clicked => { root.action("ask_remove", row.id); } }
+                        if row.kind == 3: RoundAction { icon: @image-url("../../assets/check.svg"); label: "Accept"; clicked => { root.action("accept", row.id); } }
+                        if row.kind == 3 || row.kind == 4: RoundAction { icon: @image-url("../../assets/x.svg"); label: row.kind == 3 ? "Ignore" : "Cancel"; danger: true; clicked => { root.action("decline", row.id); } }
+                        if row.kind == 2: RoundAction { icon: @image-url("../../assets/x.svg"); label: "Unblock"; danger: true; clicked => { root.action("ask_unblock", row.id); } }
+                    }
+                }
+            }
+        }
+    }
+}

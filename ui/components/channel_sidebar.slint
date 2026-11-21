@@ -120,6 +120,10 @@ export component ChannelSidebar inherits Rectangle {
     callback toggle_soundboard();
     callback stream_row_hover(string, string, length, bool);
     callback channel_action(string, string, length, length);
+    callback open_friends();
+    in property <bool> in_dms;
+    in property <bool> friends_active;
+    in property <int> friends_pending;
     in property <bool> can_manage_channels;
     in property <bool> can_create_invite;
     in property <bool> in_server;
@@ -136,7 +140,7 @@ export component ChannelSidebar inherits Rectangle {
         if (root.is_voice_focused && root.is_in_voice) {
             return is_voice && name == root.current_voice_channel;
         }
-        return id == root.active_channel_id;
+        return !root.friends_active && id == root.active_channel_id;
     }
     callback toggle_user_menu();
     callback toggle_mute();
@@ -173,6 +177,49 @@ export component ChannelSidebar inherits Rectangle {
                 font-weight: 700;
                 overflow: elide;
                 vertical-alignment: center;
+            }
+        }
+
+        if root.in_dms: Rectangle {
+            height: 40px;
+            border-radius: 4px;
+            background: root.friends_active ? AppTheme.interactive-selected : (friends_ta.has-hover ? AppTheme.interactive-hover : transparent);
+            animate background { duration: 120ms; }
+            Image {
+                x: 10px;
+                y: 10px;
+                width: 20px;
+                height: 20px;
+                source: @image-url("../../assets/users.svg");
+                colorize: root.friends_active || friends_ta.has-hover ? AppTheme.text-strong : AppTheme.text-muted;
+            }
+            Text {
+                x: 42px;
+                width: parent.width - 80px;
+                height: parent.height;
+                text: "Friends";
+                color: root.friends_active || friends_ta.has-hover ? AppTheme.text-strong : AppTheme.text-primary;
+                font-size: TypeScale.body;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+            if root.friends_pending > 0: Rectangle {
+                x: parent.width - self.width - 8px;
+                y: 10px;
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                background: AppTheme.danger-action;
+                Text {
+                    text: root.friends_pending;
+                    color: AppTheme.text-on-accent;
+                    font-size: TypeScale.caption;
+                    font-weight: 700;
+                }
+            }
+            friends_ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open_friends(); }
             }
         }
 

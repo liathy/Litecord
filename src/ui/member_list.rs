@@ -101,6 +101,10 @@ fn server_tag(user: &Value) -> String {
     tag["tag"].as_str().unwrap_or("").to_owned()
 }
 
+pub(crate) fn public_avatar_url(user_id: &str, hash: &str) -> String {
+    avatar_url(user_id, hash)
+}
+
 fn parse_item(item: &Value) -> Option<Entry> {
     if let Some(group) = item.get("group") {
         return Some(Entry::Group {

@@ -12,6 +12,7 @@ import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "comp
 import { CallChrome } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
 import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow } from "components/channel_tools.slint";
+import { FriendsPage, FriendRow } from "components/friends_view.slint";
 import { GifPlayback } from "components/chat_messages_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
@@ -702,6 +703,19 @@ export component AppWindow inherits Window {
     in-out property <length> pip_offset_x: 0px;
     in-out property <length> pip_offset_y: 0px;
     in-out property <bool> pip_dragging: false;
+
+    // Friends page
+    callback friends_action(string, string);
+    in-out property <bool> friends_open: false;
+    in-out property <string> friends_tab: "online";
+    in-out property <[FriendRow]> friends_rows: [];
+    in-out property <int> friends_pending_count: 0;
+    in-out property <bool> friends_empty: true;
+    in-out property <string> friends_status: "";
+    in-out property <string> friends_query: "";
+    in-out property <string> friends_add_name: "";
+    in-out property <string> friends_confirm_text: "";
+    in-out property <string> friends_confirm_id: "";
 
     // Image viewer
     callback image_viewer(string);
@@ -1831,7 +1845,14 @@ export component AppWindow inherits Window {
                 user_avatar_has_image: root.user_avatar_has_image;
                 user_avatar_img: root.user_avatar_img;
                 active_channel_id <=> root.active_channel_id;
-                select_channel(id) => { root.select_channel(id); }
+                select_channel(id) => {
+                    root.friends_open = false;
+                    root.select_channel(id);
+                }
+                in_dms: root.active_guild_id == "@me";
+                friends_active: root.friends_open;
+                friends_pending: root.friends_pending_count;
+                open_friends => { root.friends_action("open", ""); }
                 close_dm(id) => { root.close_dm(id); }
                 toggle_category(id) => { root.toggle_category(id); }
                 reorder_channel(from, to) => { root.reorder_channel(from, to); }
@@ -1878,6 +1899,24 @@ export component AppWindow inherits Window {
             Rectangle {
                 background: AppTheme.surface-sidebar;
                 horizontal-stretch: 1;
+
+                if root.friends_open && root.active_guild_id == "@me" && !root.is_voice_focused: FriendsPage {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    z: 40;
+                    rows: root.friends_rows;
+                    avatar_pool: root.avatar_pool;
+                    avatar_pool_urls: root.avatar_pool_urls;
+                    tab: root.friends_tab;
+                    pending_count: root.friends_pending_count;
+                    empty: root.friends_empty;
+                    status: root.friends_status;
+                    query <=> root.friends_query;
+                    add_name <=> root.friends_add_name;
+                    action(name, id) => { root.friends_action(name, id); }
+                }
 
                 if root.is_voice_focused && root.is_in_voice: call_area := TouchArea {
                     x: 0px;
@@ -5087,6 +5126,16 @@ export component AppWindow inherits Window {
         jump(id, channel) => { root.channel_panel_action("jump", id, channel); }
         unpin(id) => { root.channel_panel_action("ask_unpin", id, ""); }
         search(query) => { root.channel_panel_action("search", query, ""); }
+    }
+
+    if root.friends_confirm_text != "": ConfirmDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        text: root.friends_confirm_text;
+        cancel => { root.friends_confirm_text = ""; }
+        confirm => { root.friends_action("confirm", ""); }
     }
 
     if root.channel_confirm_text != "": ConfirmDialog {
