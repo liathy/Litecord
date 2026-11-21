@@ -1813,6 +1813,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for (user_id, (_ssrc, audio_level, is_speaking)) in sorted_users {
                     let uid_str = user_id.to_string();
                     let is_self = (user_id == my_user_id && my_user_id != 0) || user_id == 999999;
+                    if !is_self {
+                        if let Ok(http_opt) = http_client_voice_loop_inner.try_lock() {
+                            crate::ui::voice_identity::ensure(http_opt.clone(), &gateway::get_my_voice_guild_id(), user_id);
+                        }
+                    }
 
                     let username = if is_self {
                         let resolved = if my_user_id != 0 { gateway::get_user_name(my_user_id) } else { String::new() };
