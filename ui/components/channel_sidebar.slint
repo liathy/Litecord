@@ -403,30 +403,20 @@ export component ChannelSidebar inherits Rectangle {
                             }
                             if channel.is_streaming : VerticalLayout {
                                 alignment: center;
+                                horizontal-stretch: 0;
+                                width: live_label.preferred-width + 12px;
                                 Rectangle {
-                                    height: 14px;
-                                    border-radius: 4px;
+                                    width: live_label.preferred-width + 12px;
+                                    height: 16px;
+                                    border-radius: 8px;
                                     background: AppTheme.danger-action;
-                                    HorizontalLayout {
-                                        padding-left: 4px;
-                                        padding-right: 4px;
-                                        spacing: 3px;
-                                        VerticalLayout {
-                                            alignment: center;
-                                            Rectangle {
-                                                width: 4px;
-                                                height: 4px;
-                                                border-radius: 2px;
-                                                background: AppTheme.solid-white;
-                                            }
-                                        }
-                                        Text {
-                                            text: "LIVE";
-                                            color: AppTheme.text-on-accent;
-                                            font-size: TypeScale.micro;
-                                            font-weight: 800;
-                                            vertical-alignment: center;
-                                        }
+                                    live_label := Text {
+                                        text: "LIVE";
+                                        color: AppTheme.text-on-accent;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
                                     }
                                 }
                             }
