@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 use log::info;
 use serde::{Deserialize, Serialize};
 
-const REPO_OWNER: &str = "Ak4ai";
+const REPO_OWNER: &str = "liathy";
 const REPO_NAME: &str = "Litecord";
 const CONFIG_FILE: &str = ".litecord_updater_config.json";
 
@@ -267,7 +267,7 @@ pub async fn download_and_install_update(
     progress_tx: mpsc::Sender<f32>,
 ) -> Result<(), String> {
     info!("Iniciando download da atualização: {}", download_url);
-    if !download_url.starts_with("https://github.com/Ak4ai/Litecord/")
+    if !download_url.starts_with("https://github.com/liathy/Litecord/")
         && !download_url.starts_with("https://objects.githubusercontent.com/")
         && !download_url.starts_with("https://github-releases.githubusercontent.com/")
     {

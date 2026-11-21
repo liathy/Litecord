@@ -5,6 +5,29 @@ All notable changes to **Litecord** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.2-beta] - 2026-11-21
+
+**In English:** a Discord-style call screen and chat, working screen share with audio and cursor, message actions, a full emoji and sticker picker, channel tools, and live status. Updates now come from this fork.
+
+**Em resumo:** tela de chamada e chat no estilo do Discord, transmissão com áudio e cursor, ações nas mensagens, seletor completo de emoji e figurinhas, ferramentas de canal e status ao vivo. As atualizações agora vêm deste fork.
+
+### Calls and streaming
+- Stream audio and the mouse cursor reach viewers, with separate user and stream volumes.
+- New call layout with a docked chat, participant controls, stream previews and a movable picture-in-picture.
+
+### Chat
+- Message toolbar with reactions, reply, edit, forward, pin and delete.
+- GIF favorites, `@` autofill, mentions, and a picker with server emoji, Twemoji categories, stickers and search.
+- Emoji, stickers and stream quality follow what the account's plan allows.
+
+### Channels and members
+- Channel hover buttons, right-click menus, Create Channel, invites and channel settings.
+- Pinned messages, threads, notification level and search in the channel header.
+- Member activity, server tags, profile banners, and live status in profiles and DMs.
+
+### Build
+- Test builds are much faster, and the app modules are compiled only once.
+
 ## [v1.3.1-beta] - 2026-10-26
 
 **Em resumo:** transmissões que não engasgam em notebooks com duas placas de vídeo nem com espectadores no celular, voz que se recupera sozinha quando o dispositivo de áudio, a sinalização ou a criptografia DAVE falham, uma tela de configurações nova, janela que reabre onde ficou, cards de convite e de evento no chat, e muitas correções de interface vindas de contribuidores. Parado, o Litecord continua em ~40 MB e 0,2% de CPU com a janela aberta.

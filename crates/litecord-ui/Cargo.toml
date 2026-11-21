@@ -1,6 +1,6 @@
 [package]
 name = "litecord-ui"
-version = "1.3.1-beta"
+version = "1.3.2-beta"
 edition = "2021"
 description = "Litecord's Slint interface, compiled apart so Rust changes do not rebuild it"
 license = "MIT"
