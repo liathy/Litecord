@@ -246,7 +246,7 @@ export component AppWindow inherits Window {
     callback open_profile(string);
     in-out property <bool> show_member_list: true;
     in-out property <[MemberRow]> member_rows: [];
-    out property <length> member_panel_width: root.show_member_list && root.active_guild_id != "@me" && root.width >= 860px ? 240px : 0px;
+    out property <length> member_panel_width: root.show_member_list && !root.call_chat_open && root.active_guild_id != "@me" && root.width >= 860px ? 240px : 0px;
     in-out property <bool> show_profile: false;
     in-out property <bool> profile_loading: false;
     in-out property <string> profile_name;
@@ -459,6 +459,7 @@ export component AppWindow inherits Window {
 
     changed is_voice_focused => {
         if (!root.is_voice_focused) {
+            root.call_chat_docked = false;
             root.scroll_chat_to_bottom();
         }
     }
@@ -649,6 +650,11 @@ export component AppWindow inherits Window {
     in-out property <string> current_voice_channel: "";
     in-out property <bool> is_voice_focused: false;
     in-out property <bool> call_chrome_visible: true;
+    // The call's chat, docked beside the stage while the call stays on screen.
+    in-out property <bool> call_chat_docked: false;
+    out property <bool> call_chat_open: root.call_chat_docked && root.is_voice_focused && root.is_in_voice;
+    out property <length> call_chat_width: Math.min(420px, root.width * 0.42);
+    callback dock_voice_chat();
     in-out property <int> focus_tile_index: 0;
     in-out property <[VoiceParticipant]> voice_participants: [];
     in-out property <bool> is_in_dm_call: false; // true while a DM voice call is active
@@ -1682,7 +1688,8 @@ export component AppWindow inherits Window {
                 horizontal-stretch: 1;
 
                 if root.is_voice_focused && root.is_in_voice: call_area := TouchArea {
-                    width: 100%;
+                    x: 0px;
+                    width: root.call_chat_open ? parent.width - root.call_chat_width : parent.width;
                     height: 100%;
                     init => { root.call_chrome_visible = true; }
                     changed mouse-x => { root.call_chrome_visible = true; call_idle.restart(); }
@@ -2921,7 +2928,14 @@ export component AppWindow inherits Window {
                             }
                         }
                         leave => { root.leave_voice(); }
-                        open_chat => { root.open_voice_chat(); }
+                        open_chat => {
+                            if root.call_chat_docked {
+                                root.call_chat_docked = false;
+                            } else {
+                                root.call_chat_docked = true;
+                                root.dock_voice_chat();
+                            }
+                        }
                         pop_out => {
                             root.popout_stream_window(root.is_screen_sharing && root.active_stream_user_id == "" ? "self" : root.active_stream_user_id, root.active_stream_user);
                         }
@@ -2930,7 +2944,10 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if (!root.is_voice_focused || !root.is_in_voice): VerticalBox {
+                if (!root.is_voice_focused || !root.is_in_voice || root.call_chat_open): VerticalBox {
+                    x: root.call_chat_open ? parent.width - root.call_chat_width : 0px;
+                    width: root.call_chat_open ? root.call_chat_width : parent.width;
+                    height: parent.height;
                     padding: 0px;
                     spacing: 0px;
 
@@ -2968,12 +2985,22 @@ export component AppWindow inherits Window {
                                 font-size: TypeScale.title;
                                 font-weight: 700;
                                 vertical-alignment: center;
+                                overflow: elide;
                             }
 
                             Rectangle { horizontal-stretch: 1; }
 
+                            if root.call_chat_open: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/x.svg");
+                                    icon-color: AppTheme.text-secondary;
+                                    clicked => { root.call_chat_docked = false; }
+                                }
+                            }
+
                             // Member list button — servers only
-                            if root.active_guild_id != "@me": VerticalLayout {
+                            if root.active_guild_id != "@me" && !root.call_chat_open: VerticalLayout {
                                 alignment: center;
                                 IconButton {
                                     icon: @image-url("../assets/users.svg");
@@ -3023,7 +3050,7 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            if root.is_in_voice: VerticalLayout {
+                            if root.is_in_voice && !root.call_chat_open: VerticalLayout {
                                 alignment: center;
                                 Rectangle {
                                     height: 32px;
