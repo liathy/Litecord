@@ -180,11 +180,14 @@ jobs:
           # Screen capture shells out to gst-launch-1.0 (src/screen_capture), so
           # ship GStreamer and the launcher itself inside the AppImage.
           DEPLOY_GSTREAMER: 1
+          # Pinned: a new check in this script on main broke every build overnight.
+          ANYLINUX_TOOLS: https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/c4d303a0df292c0b1477851d96381012c2b31dda/useful-tools
         run: |
-          wget --retry-connrefused --tries=5 -q \
-            https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/heads/main/useful-tools/quick-sharun.sh \
-            -O ./quick-sharun
-          chmod +x ./quick-sharun
+          wget --retry-connrefused --tries=5 -q "$ANYLINUX_TOOLS/quick-sharun.sh" -O ./quick-sharun
+          wget --retry-connrefused --tries=5 -q "$ANYLINUX_TOOLS/get-debloated-pkgs.sh" -O ./get-debloated-pkgs
+          chmod +x ./quick-sharun ./get-debloated-pkgs
+          # Mesa without LLVM: over 100 MB smaller, and it runs on older kernels.
+          ./get-debloated-pkgs --add-opengl
           mkdir -p dist
           # xvfb: quick-sharun briefly runs the binary to discover dlopen'd libs.
           xvfb-run -a -- ./quick-sharun /usr/bin/litecord /usr/bin/gst-launch-1.0
