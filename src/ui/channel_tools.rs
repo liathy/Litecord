@@ -12,12 +12,15 @@ use crate::gateway::{self, arrange_channels, ChannelData, GuildData};
 use crate::http::DiscordHttpClient;
 use crate::ui::data_loader::{get_collapsed_categories, load_messages_for_channel, remember_last_channel};
 use crate::ui::helpers::{build_ui_channels, clear_dm_unread, request_chat_scroll_to_bottom};
-use crate::{AppWindow, ChannelInfoRow};
+use crate::{AppWindow, ChannelInfoRow, FriendRow};
 
 const CREATE_INVITE: u64 = 1 << 0;
 const MANAGE_CHANNELS: u64 = 1 << 4;
 const VIEW_CHANNEL: u64 = 1 << 10;
-const INVITE_SECONDS: u64 = 604_800;
+const INVITE_EXPIRY: [u64; 8] = [1_800, 3_600, 21_600, 43_200, 86_400, 604_800, 2_592_000, 0];
+const INVITE_USES: [u64; 7] = [0, 1, 5, 10, 25, 50, 100];
+const DEFAULT_EXPIRY_INDEX: i32 = 5;
+static INVITED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
 const MAX_SLOWMODE: u32 = 21_600;
 
 /// The channel as Discord last sent it, used to keep its other permission rules on save.
@@ -169,21 +172,96 @@ fn open_voice_chat(ui: &AppWindow, ctx: &Context, id: &str) {
     }
 }
 
-fn open_invite(ui: &AppWindow, ctx: &Context, id: &str) {
+fn expiry_text(seconds: u64) -> String {
+    let plural = |count: u64, unit: &str| format!("Your invite link expires in {count} {unit}{}.", if count == 1 { "" } else { "s" });
+    match seconds {
+        0 => "Your invite link never expires.".to_owned(),
+        s if s < 3_600 => plural(s / 60, "minute"),
+        s if s < 86_400 => plural(s / 3_600, "hour"),
+        s => plural(s / 86_400, "day"),
+    }
+}
+
+fn invite_body(expire_index: i32, uses_index: i32, temporary: bool, fresh: bool) -> Value {
+    let max_age = INVITE_EXPIRY.get(expire_index.max(0) as usize).copied().unwrap_or(INVITE_EXPIRY[DEFAULT_EXPIRY_INDEX as usize]);
+    let max_uses = INVITE_USES.get(uses_index.max(0) as usize).copied().unwrap_or(0);
+    json!({ "max_age": max_age, "max_uses": max_uses, "temporary": temporary, "unique": fresh })
+}
+
+fn request_invite(ui: &AppWindow, ctx: &Context, fresh: bool) {
     let Some(http) = ctx.client() else { return };
-    let name = ctx.channel(id).map(|c| c.name).unwrap_or_default();
-    ui.set_invite_channel(crate::utils::styled_text::plain_display_name(&name).as_ref().into());
+    let id = ui.get_invite_channel_id().to_string();
+    let body = invite_body(ui.get_invite_expire_index(), ui.get_invite_uses_index(), ui.get_invite_temporary(), fresh);
+    let seconds = body["max_age"].as_u64().unwrap_or(0);
     ui.set_invite_link("".into());
     ui.set_invite_status("".into());
-    ui.set_invite_open(true);
-    let (app, id) = (ui.as_weak(), id.to_owned());
+    ui.set_invite_expiry(expiry_text(seconds).into());
+    let app = ui.as_weak();
     tokio::spawn(async move {
-        let body = json!({ "max_age": INVITE_SECONDS, "max_uses": 0, "unique": false });
         let result = http.discord_call(Method::POST, &format!("/channels/{id}/invites"), Some(body)).await;
         on_ui(&app, move |ui| match result.ok().and_then(|v| v["code"].as_str().map(str::to_owned)) {
             Some(code) => ui.set_invite_link(format!("https://discord.gg/{code}").into()),
             None => ui.set_invite_status("Couldn't create an invite for this channel.".into()),
         });
+    });
+}
+
+pub(crate) fn refresh_invite_friends(ui: &AppWindow) {
+    let invited = INVITED.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default();
+    let rows: Vec<FriendRow> = crate::ui::friends::invite_rows(&ui.get_invite_query())
+        .into_iter()
+        .map(|mut row| {
+            if invited.contains(row.id.as_str()) {
+                row.kind = 100;
+            }
+            row
+        })
+        .collect();
+    ui.set_invite_friends(ModelRc::new(VecModel::from(rows)));
+}
+
+fn open_invite(ui: &AppWindow, ctx: &Context, id: &str) {
+    let name = ctx.channel(id).map(|c| c.name).unwrap_or_default();
+    *INVITED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    ui.set_invite_channel_id(id.into());
+    ui.set_invite_channel(crate::utils::styled_text::plain_display_name(&name).as_ref().into());
+    ui.set_invite_query("".into());
+    ui.set_invite_editing(false);
+    ui.set_invite_expire_index(DEFAULT_EXPIRY_INDEX);
+    ui.set_invite_uses_index(0);
+    ui.set_invite_temporary(false);
+    ui.set_invite_open(true);
+    refresh_invite_friends(ui);
+    if let Some(http) = ctx.client() {
+        crate::ui::friends::reload(ui, http);
+    }
+    request_invite(ui, ctx, false);
+}
+
+/// Sends the link to a friend who was chosen in the dialog.
+fn send_invite(ui: &AppWindow, ctx: &Context, user: &str) {
+    let Some(http) = ctx.client() else { return };
+    let link = ui.get_invite_link().to_string();
+    if link.is_empty() {
+        return;
+    }
+    INVITED.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Default::default).insert(user.to_owned());
+    refresh_invite_friends(ui);
+    let (app, user) = (ui.as_weak(), user.to_owned());
+    tokio::spawn(async move {
+        let sent = match http.open_dm(&user).await {
+            Ok(channel) => http.send_message(&channel, &link).await,
+            Err(error) => Err(error),
+        };
+        if sent.is_err() {
+            if let Some(set) = INVITED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                set.remove(&user);
+            }
+            on_ui(&app, |ui| {
+                refresh_invite_friends(ui);
+                ui.set_invite_status("Couldn't send that invite.".into());
+            });
+        }
     });
 }
 
@@ -635,6 +713,14 @@ fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
             ui.set_create_channel_open(true);
         }
         "create_submit" => create_channel(ui, ctx),
+        "invite_filter" => refresh_invite_friends(ui),
+        "invite_send" => send_invite(ui, ctx, id),
+        "invite_generate" => {
+            ui.set_invite_editing(false);
+            *INVITED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            refresh_invite_friends(ui);
+            request_invite(ui, ctx, true);
+        }
         "copy_invite" => {
             let copied = copy_text(ui.get_invite_link().to_string());
             ui.set_invite_status(if copied { "Copied!".into() } else { "Clipboard unavailable.".into() });
@@ -671,6 +757,22 @@ pub fn install(ui: &AppWindow, ctx: Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invite_settings_map_to_discord_values() {
+        let body = invite_body(6, 3, true, true);
+        assert_eq!((body["max_age"].as_u64(), body["max_uses"].as_u64()), (Some(2_592_000), Some(10)));
+        assert_eq!((body["temporary"].as_bool(), body["unique"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(invite_body(7, 0, false, false)["max_age"], 0);
+    }
+
+    #[test]
+    fn describes_when_an_invite_expires() {
+        assert_eq!(expiry_text(0), "Your invite link never expires.");
+        assert_eq!(expiry_text(1_800), "Your invite link expires in 30 minutes.");
+        assert_eq!(expiry_text(3_600), "Your invite link expires in 1 hour.");
+        assert_eq!(expiry_text(604_800), "Your invite link expires in 7 days.");
+    }
 
     #[test]
     fn text_names_follow_discord() {

@@ -772,6 +772,14 @@ export component AppWindow inherits Window {
     in-out property <string> invite_channel: "";
     in-out property <string> invite_link: "";
     in-out property <string> invite_status: "";
+    in-out property <string> invite_channel_id: "";
+    in-out property <string> invite_expiry: "";
+    in-out property <[FriendRow]> invite_friends: [];
+    in-out property <string> invite_query: "";
+    in-out property <bool> invite_editing: false;
+    in-out property <int> invite_expire_index: 5;
+    in-out property <int> invite_uses_index: 0;
+    in-out property <bool> invite_temporary: false;
     in-out property <string> channel_confirm_text: "";
     in-out property <string> channel_confirm_action: "";
     in-out property <string> channel_confirm_id: "";
@@ -5074,8 +5082,20 @@ export component AppWindow inherits Window {
         channel: root.invite_channel;
         link: root.invite_link;
         status: root.invite_status;
+        expiry: root.invite_expiry;
+        friends: root.invite_friends;
+        avatar_pool: root.avatar_pool;
+        avatar_pool_urls: root.avatar_pool_urls;
+        query <=> root.invite_query;
+        editing <=> root.invite_editing;
+        expire_index <=> root.invite_expire_index;
+        uses_index <=> root.invite_uses_index;
+        temporary <=> root.invite_temporary;
         close => { root.invite_open = false; }
         copy => { root.channel_action("copy_invite", "", 0px, 0px); }
+        filter => { root.channel_action("invite_filter", "", 0px, 0px); }
+        send(id) => { root.channel_action("invite_send", id, 0px, 0px); }
+        generate => { root.channel_action("invite_generate", "", 0px, 0px); }
     }
 
     if root.channel_menu_open: ChannelMenu {

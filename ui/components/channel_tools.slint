@@ -1,4 +1,5 @@
-import { LineEdit, ScrollView } from "std-widgets.slint";
+import { ComboBox, LineEdit, ListView, ScrollView } from "std-widgets.slint";
+import { FriendRow } from "friends_view.slint";
 import { AppTheme, TypeScale } from "../theme.slint";
 
 export struct ChannelInfoRow {
@@ -274,25 +275,82 @@ export component InviteDialog inherits Rectangle {
     in property <string> channel;
     in property <string> link;
     in property <string> status;
+    in property <string> expiry;
+    in property <[FriendRow]> friends;
+    in property <[image]> avatar_pool;
+    in property <[string]> avatar_pool_urls;
+    in-out property <string> query;
+    in-out property <bool> editing;
+    in-out property <int> expire_index: 5;
+    in-out property <int> uses_index: 0;
+    in-out property <bool> temporary;
     callback close();
     callback copy();
+    callback filter();
+    callback send(string);
+    callback generate();
 
     background: AppTheme.backdrop-soft;
     TouchArea { clicked => { root.close(); } }
 
-    Rectangle {
-        width: 440px;
-        height: box.preferred-height;
+    if !root.editing: Rectangle {
+        width: 480px;
+        height: Math.min(680px, root.height - 40px);
         border-radius: 8px;
         background: AppTheme.surface-elevated;
         border-width: 1px;
         border-color: AppTheme.border-subtle;
         TouchArea { }
-        box := VerticalLayout {
+        VerticalLayout {
             padding: 20px;
-            spacing: 12px;
+            spacing: 10px;
             Text { text: "Invite friends to #" + root.channel; color: AppTheme.text-strong; font-size: TypeScale.title; font-weight: 700; overflow: elide; }
-            FieldLabel { text: "SEND A SERVER INVITE LINK"; }
+            LineEdit {
+                text <=> root.query;
+                placeholder-text: "Search for friends";
+                edited => { root.filter(); }
+            }
+            ListView {
+                vertical-stretch: 1;
+                for friend in root.friends: Rectangle {
+                    height: 48px;
+                    border-radius: 6px;
+                    background: friend_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                    friend_ta := TouchArea { }
+                    Rectangle {
+                        x: 6px;
+                        y: 8px;
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 16px;
+                        background: AppTheme.interactive-selected;
+                        clip: true;
+                        Text { text: friend.avatar_text; color: AppTheme.text-primary; font-size: TypeScale.small; font-weight: 700; }
+                        if friend.avatar_url != "" && root.avatar_pool_urls[friend.avatar_slot] == friend.avatar_url: Image {
+                            source: root.avatar_pool[friend.avatar_slot];
+                            width: 100%;
+                            height: 100%;
+                            image-fit: cover;
+                        }
+                    }
+                    VerticalLayout {
+                        x: 48px;
+                        width: parent.width - 140px;
+                        alignment: center;
+                        Text { text: friend.name; color: AppTheme.text-strong; font-size: TypeScale.small; font-weight: 600; overflow: elide; }
+                        Text { text: friend.username; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+                    }
+                    ActionButton {
+                        x: parent.width - self.width - 8px;
+                        y: 6px;
+                        text: friend.kind == 100 ? "Sent" : "Invite";
+                        enabled: friend.kind != 100 && root.link != "";
+                        clicked => { root.send(friend.id); }
+                    }
+                }
+            }
+            Rectangle { height: 1px; background: AppTheme.separator; }
+            FieldLabel { text: "OR, SEND A SERVER INVITE LINK TO A FRIEND"; }
             HorizontalLayout {
                 spacing: 8px;
                 Rectangle {
@@ -313,15 +371,59 @@ export component InviteDialog inherits Rectangle {
                 }
                 ActionButton { text: "Copy"; primary: true; enabled: root.link != ""; clicked => { root.copy(); } }
             }
-            Text {
-                text: root.status != "" ? root.status : "Your invite link expires in 7 days.";
-                color: AppTheme.text-muted;
-                font-size: TypeScale.caption;
-                wrap: word-wrap;
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: start;
+                Text { text: root.status != "" ? root.status : root.expiry; color: AppTheme.text-muted; font-size: TypeScale.caption; }
+                Text {
+                    text: "Edit invite link.";
+                    color: edit_ta.has-hover ? AppTheme.accent-link-hover : AppTheme.link;
+                    font-size: TypeScale.caption;
+                    edit_ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.editing = true; }
+                    }
+                }
             }
             HorizontalLayout {
                 alignment: end;
                 ActionButton { text: "Done"; clicked => { root.close(); } }
+            }
+        }
+    }
+
+    if root.editing: Rectangle {
+        width: 440px;
+        height: edit_box.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        TouchArea { }
+        edit_box := VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+            Text { text: "Server invite link settings"; color: AppTheme.text-strong; font-size: TypeScale.title; font-weight: 700; }
+            FieldLabel { text: "EXPIRE AFTER"; }
+            ComboBox {
+                model: ["30 minutes", "1 hour", "6 hours", "12 hours", "1 day", "7 days", "30 days", "Never"];
+                current-index <=> root.expire_index;
+            }
+            FieldLabel { text: "MAX NUMBER OF USES"; }
+            ComboBox {
+                model: ["No limit", "1 use", "5 uses", "10 uses", "25 uses", "50 uses", "100 uses"];
+                current-index <=> root.uses_index;
+            }
+            SwitchRow {
+                title: "Grant temporary membership";
+                detail: "Temporary members are automatically kicked when they disconnect unless a role has been assigned.";
+                checked <=> root.temporary;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                ActionButton { text: "Cancel"; clicked => { root.editing = false; } }
+                ActionButton { text: "Generate a New Link"; primary: true; clicked => { root.generate(); } }
             }
         }
     }

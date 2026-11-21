@@ -112,9 +112,37 @@ fn render(ui: &AppWindow) {
         .collect();
     ui.set_friends_empty(rows.is_empty());
     ui.set_friends_rows(ModelRc::new(VecModel::from(rows)));
+    if ui.get_invite_open() {
+        crate::ui::channel_tools::refresh_invite_friends(ui);
+    }
 }
 
-fn reload(ui: &AppWindow, http: DiscordHttpClient) {
+/// Friends matching a search, for the invite dialog.
+pub(crate) fn invite_rows(query: &str) -> Vec<FriendRow> {
+    let needle = query.trim().to_lowercase();
+    ENTRIES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|entry| entry.kind == FRIEND)
+        .filter(|entry| needle.is_empty() || entry.name.to_lowercase().contains(&needle) || entry.username.to_lowercase().contains(&needle))
+        .map(|entry| {
+            let name = crate::utils::styled_text::plain_display_name(&entry.name).into_owned();
+            FriendRow {
+                id: entry.id.as_str().into(),
+                avatar_text: name.chars().next().unwrap_or('?').to_uppercase().to_string().into(),
+                name: name.into(),
+                username: entry.username.as_str().into(),
+                avatar_slot: avatar_cache::get_avatar_cache().slot_for(&entry.avatar_url),
+                avatar_url: entry.avatar_url.as_str().into(),
+                kind: FRIEND as i32,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn reload(ui: &AppWindow, http: DiscordHttpClient) {
     let request = REQUEST.fetch_add(1, Ordering::SeqCst) + 1;
     let app = ui.as_weak();
     tokio::spawn(async move {
