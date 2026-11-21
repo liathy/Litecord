@@ -9,6 +9,7 @@ import { ChannelSidebar, ChannelItem } from "components/channel_sidebar.slint";
 import { MemberListPanel, MemberRow, ProfileCard, ProfileRole, UserContextMenu } from "components/member_list.slint";
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
+import { CallChrome } from "components/call_chrome.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
 
@@ -646,6 +647,7 @@ export component AppWindow inherits Window {
     in-out property <bool> is_voice_connecting: false;
     in-out property <string> current_voice_channel: "";
     in-out property <bool> is_voice_focused: false;
+    in-out property <bool> call_chrome_visible: true;
     in-out property <[VoiceParticipant]> voice_participants: [];
     in-out property <bool> is_in_dm_call: false; // true while a DM voice call is active
     in-out property <bool> has_incoming_call: false;  // true when receiving a DM call
@@ -1675,317 +1677,27 @@ export component AppWindow inherits Window {
                 background: AppTheme.surface-sidebar;
                 horizontal-stretch: 1;
 
-                if root.is_voice_focused && root.is_in_voice: VerticalBox {
+                if root.is_voice_focused && root.is_in_voice: call_area := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    init => { root.call_chrome_visible = true; }
+                    changed mouse-x => { root.call_chrome_visible = true; call_idle.restart(); }
+                    changed mouse-y => { root.call_chrome_visible = true; call_idle.restart(); }
+                    changed has-hover => {
+                        root.call_chrome_visible = self.has-hover;
+                    }
+
+                    call_idle := Timer {
+                        interval: 2800ms;
+                        running: root.call_chrome_visible && !call_chrome.pointer_inside;
+                        triggered => { root.call_chrome_visible = false; }
+                    }
+
+                VerticalBox {
+                    width: 100%;
+                    height: 100%;
                     padding: 0px;
                     spacing: 0px;
-
-                    // Voice Room Header Bar
-                    Rectangle {
-                        height: 44px;
-                        background: AppTheme.surface-sidebar;
-
-                        // Left vertical divider line separating channel sidebar from voice header bar
-                        Rectangle {
-                            x: 0px;
-                            y: 8px;
-                            width: 1px;
-                            height: parent.height - 16px;
-                            background: AppTheme.separator;
-                        }
-
-                        HorizontalLayout {
-                            padding-left: 16px;
-                            padding-right: 16px;
-                            spacing: 8px;
-
-                            VerticalLayout {
-                                alignment: center;
-                                Image {
-                                    source: @image-url("../assets/speaker.svg");
-                                    width: 16px;
-                                    height: 16px;
-                                    colorize: AppTheme.text-strong;
-                                    image-fit: contain;
-                                }
-                            }
-
-                            VerticalLayout {
-                                alignment: center;
-                                Text {
-                                    text: root.current_voice_channel;
-                                    color: AppTheme.text-strong;
-                                    font-size: TypeScale.title;
-                                    font-weight: 800;
-                                }
-                            }
-
-                            Rectangle { horizontal-stretch: 1; }
-
-                            // Collapse / expand the voice member list
-                            VerticalLayout {
-                                alignment: center;
-                                Rectangle {
-                                    width: 32px;
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: btn_members_ta.has-hover ? AppTheme.separator : AppTheme.surface-chat;
-
-                                    VerticalLayout {
-                                        alignment: center;
-                                        HorizontalLayout {
-                                            alignment: center;
-                                            Image {
-                                                source: root.voice_members_collapsed ? @image-url("../assets/chevron-down.svg") : @image-url("../assets/chevron-up.svg");
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: AppTheme.text-strong;
-                                                image-fit: contain;
-                                            }
-                                        }
-                                    }
-
-                                    btn_members_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.voice_members_collapsed = !root.voice_members_collapsed; }
-                                    }
-                                }
-                            }
-
-                            // Camera Button
-                            VerticalLayout {
-                                alignment: center;
-
-                                Rectangle {
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: btn_cam_header_ta.pressed ? #16a34a : (btn_cam_header_ta.has-hover ? #22c55e : AppTheme.surface-chat);
-                                    animate background { duration: 120ms; }
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        spacing: 8px;
-                                        alignment: center;
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            Image {
-                                                source: @image-url("../assets/camera.svg");
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: btn_cam_header_ta.has-hover ? AppTheme.text-on-accent : AppTheme.text-strong;
-                                                image-fit: contain;
-                                            }
-                                        }
-
-                                        Text {
-                                            text: Tr.camera;
-                                            color: btn_cam_header_ta.has-hover ? AppTheme.text-on-accent : AppTheme.text-strong;
-                                            font-size: TypeScale.body;
-                                            font-weight: 600;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-
-                                    btn_cam_header_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.stream_source_tab = "cameras";
-                                            root.open_stream_modal();
-                                        }
-                                    }
-                                }
-                            }
-
-                            VerticalLayout {
-                                alignment: center;
-
-                                Rectangle {
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: btn_share_ta.pressed ? (root.is_screen_sharing ? AppTheme.danger-deep : #ea580c) : (btn_share_ta.has-hover ? (root.is_screen_sharing ? AppTheme.danger-medium : #f97316) : (root.is_screen_sharing ? AppTheme.danger-action : AppTheme.surface-chat));
-                                    animate background { duration: 120ms; }
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        spacing: 8px;
-                                        alignment: center;
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            Image {
-                                                source: @image-url("../assets/monitor.svg");
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: (root.is_screen_sharing || btn_share_ta.has-hover ? AppTheme.text-on-accent : AppTheme.text-strong);
-                                                image-fit: contain;
-                                            }
-                                        }
-
-                                        Text {
-                                            text: root.is_screen_sharing ? root.tr_stop_screen_share : root.tr_start_screen_share;
-                                            color: (root.is_screen_sharing || btn_share_ta.has-hover ? AppTheme.text-on-accent : AppTheme.text-strong);
-                                            font-size: TypeScale.body;
-                                            font-weight: 600;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-
-                                    btn_share_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            if root.is_screen_sharing {
-                                                root.toggle_screen_share();
-                                            } else {
-                                                root.open_stream_modal();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if root.is_screen_sharing: VerticalLayout {
-                                alignment: center;
-                                Rectangle {
-                                    width: 32px;
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: root.web_share_active ? (web_ta.has-hover ? AppTheme.accent-hover : AppTheme.accent) : (web_ta.has-hover ? AppTheme.separator : AppTheme.surface-chat);
-                                    opacity: root.web_share_pending ? 0.5 : 1;
-                                    accessible-role: button;
-                                    accessible-label: root.web_share_pending ? Tr.web_share_connecting : (root.web_share_active ? Tr.web_share_title + " (" + root.web_share_viewers + "/3)" : Tr.web_share_start);
-                                    Image {
-                                        x: 7px;
-                                        y: 7px;
-                                        width: 18px;
-                                        height: 18px;
-                                        source: @image-url("../assets/globe.svg");
-                                        colorize: root.web_share_active ? AppTheme.text-on-accent : AppTheme.text-strong;
-                                        image-fit: contain;
-                                    }
-                                    if web_ta.has-hover: Rectangle {
-                                        z: 10;
-                                        x: parent.width - self.width;
-                                        y: parent.height + 6px;
-                                        width: 220px;
-                                        height: 30px;
-                                        border-radius: 4px;
-                                        background: AppTheme.surface-chat;
-                                        border-width: 1px;
-                                        border-color: AppTheme.border-subtle;
-                                        Text {
-                                            text: root.web_share_pending ? Tr.web_share_connecting : (root.web_share_active ? Tr.web_share_title + " (" + root.web_share_viewers + "/3)" : Tr.web_share_start);
-                                            color: AppTheme.text-strong;
-                                            font-size: TypeScale.small;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-                                    web_ta := TouchArea {
-                                        enabled: !root.web_share_pending;
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            if root.web_share_active {
-                                                root.web_share_copied = false;
-                                                root.show_web_share_modal = true;
-                                            } else {
-                                                root.toggle_web_share();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            VerticalLayout {
-                                alignment: center;
-
-                                Rectangle {
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: btn_chat_ta.pressed ? AppTheme.surface-pressed : (btn_chat_ta.has-hover ? AppTheme.separator : AppTheme.surface-chat);
-                                    animate background { duration: 120ms; }
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        spacing: 8px;
-                                        alignment: center;
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            Image {
-                                                source: @image-url("../assets/message-square.svg");
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: AppTheme.text-strong;
-                                                image-fit: contain;
-                                            }
-                                        }
-
-                                        Text {
-                                            text: root.tr_view_text_chat;
-                                            color: AppTheme.text-strong;
-                                            font-size: TypeScale.body;
-                                            font-weight: 600;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-
-                                    btn_chat_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.toggle_voice_focus();
-                                            root.scroll_chat_to_bottom();
-                                        }
-                                    }
-                                }
-                            }
-
-                            VerticalLayout {
-                                alignment: center;
-
-                                Rectangle {
-                                    height: 32px;
-                                    border-radius: 4px;
-                                    background: btn_leave_ta.pressed ? AppTheme.danger-deep : (btn_leave_ta.has-hover ? AppTheme.danger-action : AppTheme.surface-chat);
-                                    animate background { duration: 120ms; }
-
-                                    HorizontalLayout {
-                                        padding-left: 12px;
-                                        padding-right: 12px;
-                                        spacing: 8px;
-                                        alignment: center;
-
-                                        VerticalLayout {
-                                            alignment: center;
-                                            Image {
-                                                source: @image-url("../assets/log-out.svg");
-                                                width: 14px;
-                                                height: 14px;
-                                                colorize: (btn_leave_ta.has-hover || btn_leave_ta.pressed ? AppTheme.text-on-accent : AppTheme.text-strong);
-                                                image-fit: contain;
-                                            }
-                                        }
-
-                                        Text {
-                                            text: root.tr_leave_call;
-                                            color: (btn_leave_ta.has-hover || btn_leave_ta.pressed ? AppTheme.text-on-accent : AppTheme.text-strong);
-                                            font-size: TypeScale.body;
-                                            font-weight: 600;
-                                            vertical-alignment: center;
-                                        }
-                                    }
-
-                                    btn_leave_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.leave_voice();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     // Voice Room Connecting Loading State
                     if root.is_voice_connecting: Rectangle {
@@ -2053,20 +1765,12 @@ export component AppWindow inherits Window {
                     // Voice Room Participants Dynamic Stage Grid
                     if !root.is_voice_connecting: voice_stage_container := Rectangle {
                         vertical-stretch: 1;
-                        background: AppTheme.surface-input;
-                        border-top-left-radius: 8px;
+                        background: AppTheme.surface-media;
                         clip: true;
 
                         VerticalBox {
-                            padding: 12px;
-                            spacing: 8px;
-
-                            Text {
-                                text: root.tr_voice_participants_title + " (" + root.voice_participants.length + ")";
-                                color: AppTheme.text-muted;
-                                font-size: TypeScale.caption;
-                                font-weight: 700;
-                            }
+                            padding: 8px;
+                            spacing: 0px;
 
                             ListView {
                                 for p in root.voice_participants: Rectangle {
@@ -2134,7 +1838,7 @@ export component AppWindow inherits Window {
                                             height: parent.height + 8px;
                                             border-radius: 12px;
                                             border-width: 4px;
-                                            border-color: AppTheme.surface-input;
+                                            border-color: AppTheme.surface-media;
                                         }
                                         Rectangle {
                                             border-radius: 8px;
@@ -2151,8 +1855,9 @@ export component AppWindow inherits Window {
 
                                         // Top Overlay Bar (Left: Live badge, username, mute, prio | Right: Popout, Fullscreen)
                                         stream_top_bar := Rectangle {
+                                            visible: root.call_chrome_visible;
                                             x: 8px;
-                                            y: 8px;
+                                            y: 50px;
                                             width: parent.width - 16px;
                                             height: 32px;
                                             background: transparent;
@@ -3011,6 +2716,55 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
+                    }
+                }
+
+                    call_chrome := CallChrome {
+                        width: 100%;
+                        height: 100%;
+                        shown: root.call_chrome_visible || root.is_voice_connecting;
+                        title: root.current_voice_channel;
+                        stream_user: root.active_stream_user;
+                        muted: root.is_muted;
+                        deafened: root.is_deafened;
+                        sharing: root.is_screen_sharing;
+                        has_stream: root.has_active_stream || root.is_screen_sharing;
+                        members_collapsed: root.voice_members_collapsed;
+                        web_share_active: root.web_share_active;
+                        web_share_pending: root.web_share_pending;
+                        share_label: root.is_screen_sharing ? root.tr_stop_screen_share : root.tr_start_screen_share;
+                        camera_label: Tr.camera;
+                        chat_label: root.tr_view_text_chat;
+                        leave_label: root.tr_leave_call;
+                        web_label: root.web_share_pending ? Tr.web_share_connecting : (root.web_share_active ? Tr.web_share_title : Tr.web_share_start);
+                        toggle_mic => { root.toggle_mute(); }
+                        toggle_headset => { root.toggle_deafen(); }
+                        open_camera => {
+                            root.stream_source_tab = "cameras";
+                            root.open_stream_modal();
+                        }
+                        toggle_share => {
+                            if root.is_screen_sharing {
+                                root.toggle_screen_share();
+                            } else {
+                                root.open_stream_modal();
+                            }
+                        }
+                        web_share => {
+                            if root.web_share_active {
+                                root.web_share_copied = false;
+                                root.show_web_share_modal = true;
+                            } else {
+                                root.toggle_web_share();
+                            }
+                        }
+                        leave => { root.leave_voice(); }
+                        open_chat => { root.open_voice_chat(); }
+                        pop_out => {
+                            root.popout_stream_window(root.is_screen_sharing && root.active_stream_user_id == "" ? "self" : root.active_stream_user_id, root.active_stream_user);
+                        }
+                        fullscreen => { root.toggle_stream_fullscreen(); }
+                        toggle_members => { root.voice_members_collapsed = !root.voice_members_collapsed; }
                     }
                 }
 

@@ -1,0 +1,283 @@
+import { AppTheme, TypeScale } from "../theme.slint";
+
+component CallButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> active: false;
+    in property <bool> alert: false;
+    in property <bool> danger: false;
+    in property <length> button-width: 44px;
+    callback clicked();
+
+    width: button-width;
+    height: 44px;
+    border-radius: 6px;
+    accessible-role: button;
+    accessible-label: label;
+    background: danger
+        ? (ta.pressed ? AppTheme.danger-deep : (ta.has-hover ? AppTheme.danger-action-hover : AppTheme.danger-action))
+        : active
+            ? (ta.has-hover ? AppTheme.success-action-hover : AppTheme.success-subtle)
+            : (ta.pressed ? AppTheme.surface-pressed : (ta.has-hover ? AppTheme.interactive-hover : transparent));
+    animate background { duration: 120ms; easing: ease-out; }
+
+    Image {
+        property <length> size: ta.pressed ? 18px : (ta.has-hover ? 21px : 20px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: size;
+        height: size;
+        source: root.icon;
+        image-fit: contain;
+        colorize: root.danger ? AppTheme.text-on-accent
+            : root.alert ? AppTheme.danger
+            : root.active ? (ta.has-hover ? AppTheme.text-on-accent : AppTheme.success)
+            : (ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary);
+        animate size { duration: 100ms; easing: ease-out; }
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component CallGroup inherits Rectangle {
+    height: 52px;
+    border-radius: 10px;
+    background: AppTheme.surface-elevated;
+    border-width: 1px;
+    border-color: AppTheme.border-subtle;
+    width: row.preferred-width;
+
+    row := HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        @children
+    }
+}
+
+// The call's controls: they float over the stage and fade while the mouse is idle.
+export component CallChrome inherits Rectangle {
+    in property <bool> shown: true;
+    in property <string> title;
+    in property <string> stream_user;
+    in property <bool> muted;
+    in property <bool> deafened;
+    in property <bool> sharing;
+    in property <bool> has_stream;
+    in property <bool> members_collapsed;
+    in property <bool> web_share_active;
+    in property <bool> web_share_pending;
+    in property <string> share_label;
+    in property <string> camera_label;
+    in property <string> chat_label;
+    in property <string> leave_label;
+    in property <string> web_label;
+    out property <bool> pointer_inside: top_ta.has-hover || bottom_ta.has-hover;
+
+    callback toggle_mic();
+    callback toggle_headset();
+    callback open_camera();
+    callback toggle_share();
+    callback web_share();
+    callback leave();
+    callback open_chat();
+    callback pop_out();
+    callback fullscreen();
+    callback toggle_members();
+
+    background: transparent;
+
+    // Top: where you are and the chat
+    Rectangle {
+        y: root.shown ? 0px : -10px;
+        height: 56px;
+        opacity: root.shown ? 1 : 0;
+        background: @linear-gradient(180deg, #000000c8 0%, #00000000 100%);
+        animate y, opacity { duration: 160ms; easing: ease-out; }
+
+        top_ta := TouchArea {
+            enabled: root.shown;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 10px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        width: 18px;
+                        height: 18px;
+                        source: @image-url("../../assets/speaker.svg");
+                        colorize: AppTheme.text-secondary;
+                        image-fit: contain;
+                    }
+                }
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.stream_user != "" ? root.title + "   •   " + root.stream_user : root.title;
+                    color: AppTheme.text-strong;
+                    font-size: TypeScale.body;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    CallButton {
+                        icon: @image-url("../../assets/message-square.svg");
+                        label: root.chat_label;
+                        enabled: root.shown;
+                        clicked => { root.open_chat(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom: the call's controls
+    Rectangle {
+        y: root.height - self.height + (root.shown ? 0px : 12px);
+        height: 104px;
+        opacity: root.shown ? 1 : 0;
+        background: @linear-gradient(0deg, #000000c8 0%, #00000000 100%);
+        animate y, opacity { duration: 160ms; easing: ease-out; }
+
+        bottom_ta := TouchArea {
+            enabled: root.shown;
+
+            // Show or hide the people who are not streaming
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 4px;
+                width: 62px;
+                height: 28px;
+                border-radius: 14px;
+                background: members_ta.has-hover ? AppTheme.surface-pressed : AppTheme.surface-elevated;
+                animate background { duration: 120ms; easing: ease-out; }
+                accessible-role: button;
+                accessible-label: "Participants";
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 5px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 14px;
+                            height: 14px;
+                            source: root.members_collapsed ? @image-url("../../assets/chevron-up.svg") : @image-url("../../assets/chevron-down.svg");
+                            colorize: AppTheme.text-strong;
+                            image-fit: contain;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 16px;
+                            height: 16px;
+                            source: @image-url("../../assets/users.svg");
+                            colorize: AppTheme.text-strong;
+                            image-fit: contain;
+                        }
+                    }
+                }
+
+                members_ta := TouchArea {
+                    enabled: root.shown;
+                    mouse-cursor: pointer;
+                    clicked => { root.toggle_members(); }
+                }
+            }
+
+            center_row := HorizontalLayout {
+                x: (parent.width - self.preferred-width) / 2;
+                y: parent.height - 60px;
+                width: self.preferred-width;
+                height: 52px;
+                spacing: 12px;
+
+                CallGroup {
+                    CallButton {
+                        icon: root.muted ? @image-url("../../assets/microphone-mute.svg") : @image-url("../../assets/microphone.svg");
+                        label: root.muted ? "Unmute" : "Mute";
+                        alert: root.muted;
+                        enabled: root.shown;
+                        clicked => { root.toggle_mic(); }
+                    }
+                    CallButton {
+                        icon: root.deafened ? @image-url("../../assets/headphones-mute.svg") : @image-url("../../assets/headphones.svg");
+                        label: root.deafened ? "Undeafen" : "Deafen";
+                        alert: root.deafened;
+                        enabled: root.shown;
+                        clicked => { root.toggle_headset(); }
+                    }
+                }
+
+                CallGroup {
+                    CallButton {
+                        icon: @image-url("../../assets/camera.svg");
+                        label: root.camera_label;
+                        enabled: root.shown;
+                        clicked => { root.open_camera(); }
+                    }
+                    CallButton {
+                        icon: @image-url("../../assets/monitor.svg");
+                        label: root.share_label;
+                        active: root.sharing;
+                        enabled: root.shown;
+                        clicked => { root.toggle_share(); }
+                    }
+                    if root.sharing: CallButton {
+                        icon: @image-url("../../assets/globe.svg");
+                        label: root.web_label;
+                        active: root.web_share_active;
+                        enabled: root.shown && !root.web_share_pending;
+                        opacity: root.web_share_pending ? 0.5 : 1;
+                        clicked => { root.web_share(); }
+                    }
+                }
+
+                CallGroup {
+                    background: AppTheme.danger-action;
+                    border-color: AppTheme.danger-action;
+                    CallButton {
+                        icon: @image-url("../../assets/phone-slash.svg");
+                        label: root.leave_label;
+                        danger: true;
+                        button-width: 60px;
+                        enabled: root.shown;
+                        clicked => { root.leave(); }
+                    }
+                }
+            }
+
+            if root.has_stream: HorizontalLayout {
+                x: parent.width - self.preferred-width - 12px;
+                y: parent.height - 54px;
+                width: self.preferred-width;
+                height: 44px;
+                spacing: 2px;
+
+                CallButton {
+                    icon: @image-url("../../assets/popout.svg");
+                    label: "Pop Out";
+                    enabled: root.shown;
+                    clicked => { root.pop_out(); }
+                }
+                CallButton {
+                    icon: @image-url("../../assets/chrome-maximize.svg");
+                    label: "Full Screen";
+                    enabled: root.shown;
+                    clicked => { root.fullscreen(); }
+                }
+            }
+        }
+    }
+}
