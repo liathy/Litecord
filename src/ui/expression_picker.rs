@@ -40,8 +40,40 @@ struct Sticker {
 
 static SHOWN_STICKERS: Mutex<Vec<Sticker>> = Mutex::new(Vec::new());
 
+#[derive(Clone)]
+struct EmojiGroup {
+    id: &'static str,
+    title: &'static str,
+    icon: &'static str,
+    items: Vec<EmojiPickerItem>,
+}
+
+const EMOJI_GROUPS: [(&str, &str, &str); 8] = [
+    ("people", "People", "😀"),
+    ("nature", "Nature", "🌿"),
+    ("food", "Food", "🍔"),
+    ("activities", "Activities", "🎮"),
+    ("travel", "Travel", "🚲"),
+    ("objects", "Objects", "💡"),
+    ("symbols", "Symbols", "❤️"),
+    ("flags", "Flags", "🚩"),
+];
+
+fn group_index(group: emojis::Group) -> usize {
+    match group {
+        emojis::Group::SmileysAndEmotion | emojis::Group::PeopleAndBody => 0,
+        emojis::Group::AnimalsAndNature => 1,
+        emojis::Group::FoodAndDrink => 2,
+        emojis::Group::Activities => 3,
+        emojis::Group::TravelAndPlaces => 4,
+        emojis::Group::Objects => 5,
+        emojis::Group::Symbols => 6,
+        emojis::Group::Flags => 7,
+    }
+}
+
 thread_local! {
-    static BASE_EMOJIS: RefCell<Option<Vec<EmojiPickerItem>>> = const { RefCell::new(None) };
+    static BASE_EMOJIS: RefCell<Option<Vec<EmojiGroup>>> = const { RefCell::new(None) };
 }
 
 /// Keys of a frecency map, most used first. String keys for emoji, fixed64 for stickers.
@@ -82,34 +114,40 @@ fn parse_frecency(settings: &[u8], section_field: u64) -> Vec<String> {
     found.into_iter().map(|(key, _, _)| key).collect()
 }
 
-fn base_emojis(ui: &AppWindow) -> Vec<EmojiPickerItem> {
+fn emoji_groups() -> Vec<EmojiGroup> {
     BASE_EMOJIS.with_borrow_mut(|slot| {
         slot.get_or_insert_with(|| {
-            ui.get_emoji_rows()
+            let mut groups: Vec<EmojiGroup> = EMOJI_GROUPS
                 .iter()
-                .flat_map(|row| row.emojis.iter().collect::<Vec<_>>())
-                .filter(|item| !item.is_custom)
-                .map(|mut item| {
-                    if let Some((_, _, _, id)) = crate::gateway::find_next_unicode_emoji(&item.code) {
-                        item.emoji_id = id.into();
-                    }
-                    item
-                })
-                .collect()
+                .map(|(id, title, icon)| EmojiGroup { id, title, icon, items: Vec::new() })
+                .collect();
+            for emoji in emojis::iter() {
+                let code = emoji.as_str();
+                let Some((_, _, _, id)) = crate::gateway::find_next_unicode_emoji(code) else { continue };
+                groups[group_index(emoji.group())].items.push(EmojiPickerItem {
+                    code: code.into(),
+                    name: emoji.shortcode().unwrap_or(emoji.name()).into(),
+                    category: emoji.name().into(),
+                    is_custom: false,
+                    emoji_id: id.into(),
+                    img: Image::default(),
+                    locked: false,
+                });
+            }
+            groups
         })
         .clone()
     })
 }
 
 fn custom_item(emoji: &emoji_cache::CustomEmojiEntry, active_guild: &str, has_plan: bool) -> EmojiPickerItem {
-    let cache = emoji_cache::get_emoji_cache();
     EmojiPickerItem {
         code: format!("<{}:{}:{}>", if emoji.animated { "a" } else { "" }, emoji.name, emoji.id).into(),
         name: emoji.name.as_str().into(),
         category: "server".into(),
         is_custom: true,
         emoji_id: emoji.id.as_str().into(),
-        img: cache.get(&emoji.id).unwrap_or_default(),
+        img: Image::default(),
         locked: !emoji.available || (!has_plan && (emoji.guild_id != active_guild || emoji.animated)),
     }
 }
@@ -122,15 +160,16 @@ fn guild_names(ui: &AppWindow) -> HashMap<String, (String, Image, bool)> {
         .collect()
 }
 
-fn frequent_items(ui: &AppWindow, customs: &[emoji_cache::CustomEmojiEntry], active: &str, has_plan: bool) -> Vec<EmojiPickerItem> {
-    let base = base_emojis(ui);
+fn frequent_items(customs: &[emoji_cache::CustomEmojiEntry], active: &str, has_plan: bool) -> Vec<EmojiPickerItem> {
+    let groups = emoji_groups();
+    let base: Vec<&EmojiPickerItem> = groups.iter().flat_map(|group| group.items.iter()).collect();
     let keys = FREQUENT_EMOJIS.lock().unwrap_or_else(|e| e.into_inner()).clone();
     keys.iter()
         .filter_map(|key| {
             if key.chars().all(|c| c.is_ascii_digit()) {
                 customs.iter().find(|emoji| emoji.id == *key).map(|emoji| custom_item(emoji, active, has_plan))
             } else {
-                base.iter().find(|item| item.code == key.as_str() || item.name.eq_ignore_ascii_case(key)).cloned()
+                base.iter().find(|item| item.code == key.as_str() || item.name.eq_ignore_ascii_case(key)).map(|item| (*item).clone())
             }
         })
         .take(MAX_FREQUENT)
@@ -153,13 +192,14 @@ fn rail_item(id: &str, name: &str, icon: Image, has_icon: bool, is_recent: bool,
         has_icon,
         is_recent,
         row: row as i32,
+        emoji_id: "".into(),
     }
 }
 
 /// Rebuilds the emoji tab for a search text.
 pub fn build_emoji(ui: &AppWindow, query: &str) {
     let needle = query.trim().to_lowercase();
-    let matches = |item: &EmojiPickerItem| needle.is_empty() || item.name.to_lowercase().contains(&needle);
+    let matches = |item: &EmojiPickerItem| needle.is_empty() || item.name.to_lowercase().contains(&needle) || item.category.to_lowercase().contains(&needle);
     let active = ui.get_active_guild_id().to_string();
     let has_plan = crate::native_video::sender::premium_type() != 0;
     let mut customs = emoji_cache::get_all_custom_emojis();
@@ -168,7 +208,7 @@ pub fn build_emoji(ui: &AppWindow, query: &str) {
     let (mut rows, mut rail) = (Vec::new(), Vec::new());
 
     if needle.is_empty() {
-        let frequent = frequent_items(ui, &customs, &active, has_plan);
+        let frequent = frequent_items(&customs, &active, has_plan);
         if !frequent.is_empty() {
             rail.push(rail_item("recent", "Frequently Used", Image::default(), false, true, rows.len()));
             push_section(&mut rows, "Frequently Used", &frequent);
@@ -197,10 +237,17 @@ pub fn build_emoji(ui: &AppWindow, query: &str) {
         push_section(&mut rows, &name, &items);
     }
 
-    let unicode: Vec<EmojiPickerItem> = base_emojis(ui).into_iter().filter(|item| matches(item)).collect();
-    if !unicode.is_empty() {
-        rail.push(rail_item("unicode", "Emoji", Image::default(), false, false, rows.len()));
-        push_section(&mut rows, "Emoji", &unicode);
+    for group in emoji_groups() {
+        let items: Vec<EmojiPickerItem> = group.items.into_iter().filter(|item| matches(item)).collect();
+        if items.is_empty() {
+            continue;
+        }
+        let mut entry = rail_item(group.id, group.title, Image::default(), false, false, rows.len());
+        if let Some((_, _, _, id)) = crate::gateway::find_next_unicode_emoji(group.icon) {
+            entry.emoji_id = id.into();
+        }
+        rail.push(entry);
+        push_section(&mut rows, group.title, &items);
     }
     ui.set_emoji_rows(ModelRc::new(VecModel::from(rows)));
     ui.set_emoji_rail(ModelRc::new(VecModel::from(rail)));
@@ -227,6 +274,18 @@ pub fn load_emoji(ui: &AppWindow, emoji_id: &str) {
     }
 }
 
+/// A category icon on the rail finished loading.
+pub fn rail_emoji_loaded(ui: &AppWindow, emoji_id: &str, image: &Image) {
+    let rail = ui.get_emoji_rail();
+    for index in 0..rail.row_count() {
+        if let Some(mut item) = rail.row_data(index).filter(|item| item.emoji_id == emoji_id) {
+            item.icon = image.clone();
+            item.has_icon = true;
+            rail.set_row_data(index, item);
+        }
+    }
+}
+
 /// Reads the account's most used emoji and stickers.
 pub fn refresh_frequent(ui: &AppWindow, http: Option<DiscordHttpClient>) {
     let Some(http) = http else { return };
@@ -242,7 +301,7 @@ pub fn refresh_frequent(ui: &AppWindow, http: Option<DiscordHttpClient>) {
             let active = ui.get_active_guild_id().to_string();
             let has_plan = crate::native_video::sender::premium_type() != 0;
             let customs = emoji_cache::get_all_custom_emojis();
-            let quick: Vec<(String, String, String)> = frequent_items(&ui, &customs, &active, has_plan)
+            let quick: Vec<(String, String, String)> = frequent_items(&customs, &active, has_plan)
                 .into_iter()
                 .filter(|item| !item.locked)
                 .take(3)

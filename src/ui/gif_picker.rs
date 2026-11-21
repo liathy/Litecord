@@ -376,6 +376,7 @@ pub fn hydrate_emoji_picker(ui: &AppWindow) {
 
 pub fn emoji_loaded(ui: &AppWindow, emoji_id: &str, image: &Image) {
     crate::ui::chat_actions::emoji_loaded(ui, emoji_id, image);
+    crate::ui::expression_picker::rail_emoji_loaded(ui, emoji_id, image);
     if !ui.get_show_emoji_picker() {
         return;
     }

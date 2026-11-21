@@ -50,6 +50,7 @@ export struct PickerRail {
     has_icon: bool,
     is_recent: bool,
     row: int,
+    emoji_id: string,
 }
 
 export struct PendingFile {
@@ -4145,6 +4146,9 @@ export component AppWindow inherits Window {
                                     width: 52px;
                                     for item in root.emoji_rail: Rectangle {
                                         height: 46px;
+                                        init => {
+                                            if (item.emoji_id != "" && !item.has_icon) { root.load_picker_emoji(item.emoji_id); }
+                                        }
                                         Rectangle {
                                             x: 4px;
                                             y: 3px;
@@ -4266,6 +4270,16 @@ export component AppWindow inherits Window {
                                 height: 40px;
                                 HorizontalLayout {
                                     spacing: 10px;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Image {
+                                            width: 24px;
+                                            height: 24px;
+                                            source: @image-url("../assets/emoji.svg");
+                                            colorize: AppTheme.text-muted;
+                                            image-fit: contain;
+                                        }
+                                    }
                                     VerticalLayout {
                                         alignment: center;
                                         Image {
