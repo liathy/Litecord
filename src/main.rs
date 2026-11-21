@@ -177,6 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let saved_audio_cfg = gateway::load_persisted_audio_config();
     app.set_vad_threshold(saved_audio_cfg.vad_threshold);
     app.set_mic_volume(saved_audio_cfg.mic_volume);
+    app.set_notification_volume(gateway::get_notification_volume());
     app.set_app_version(updater::get_local_version_string().into());
 
     let initial_keybinds = keybinds::load_persisted_keybinds_config();
@@ -2308,6 +2309,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.on_set_mic_volume(move |vol: f32| {
         gateway::set_mic_volume(vol);
+    });
+
+    app.on_change_notification_volume(move |vol: f32| {
+        gateway::set_notification_volume(vol);
+    });
+
+    app.on_preview_notification_sound(move || {
+        sound_effects::play_ui_sound(sound_effects::UiSound::Unmute);
     });
 
     let app_weak_test_mic = app_weak.clone();

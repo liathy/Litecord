@@ -196,6 +196,9 @@ pub struct GlobalAudioConfig {
     pub vad_threshold: f32,
     #[serde(default = "default_mic_volume")]
     pub mic_volume: f32,
+    /// Litecord's own sounds (join, leave, mute...), apart from people's voices.
+    #[serde(default = "default_notification_volume")]
+    pub notification_volume: f32,
     pub input_device: String,
     pub output_device: String,
 }
@@ -204,11 +207,16 @@ fn default_mic_volume() -> f32 {
     1.0
 }
 
+fn default_notification_volume() -> f32 {
+    1.0
+}
+
 impl Default for GlobalAudioConfig {
     fn default() -> Self {
         Self {
             vad_threshold: 0.40, // -60 dBFS: Discord standard sensitivity threshold
             mic_volume: 1.0,
+            notification_volume: 1.0,
             input_device: String::new(),
             output_device: String::new(),
         }
@@ -267,6 +275,26 @@ pub fn set_mic_volume(val: f32) {
 
 pub fn get_mic_volume() -> f32 {
     f32::from_bits(get_mic_volume_atomic().load(Ordering::Relaxed))
+}
+
+static NOTIFICATION_VOLUME: std::sync::OnceLock<AtomicU32> = std::sync::OnceLock::new();
+
+fn notification_volume_atomic() -> &'static AtomicU32 {
+    NOTIFICATION_VOLUME.get_or_init(|| {
+        AtomicU32::new(load_persisted_audio_config().notification_volume.clamp(0.0, 1.0).to_bits())
+    })
+}
+
+pub fn set_notification_volume(val: f32) {
+    let clamped = val.clamp(0.0, 1.0);
+    notification_volume_atomic().store(clamped.to_bits(), Ordering::Relaxed);
+    let mut cfg = load_persisted_audio_config();
+    cfg.notification_volume = clamped;
+    save_persisted_audio_config(&cfg);
+}
+
+pub fn get_notification_volume() -> f32 {
+    f32::from_bits(notification_volume_atomic().load(Ordering::Relaxed))
 }
 
 fn get_vad_threshold_atomic() -> &'static std::sync::atomic::AtomicU32 {

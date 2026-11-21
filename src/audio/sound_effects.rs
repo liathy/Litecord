@@ -49,6 +49,9 @@ pub fn init_sound_effects() {
 
 /// Plays a tactile UI sound effect immediately.
 pub fn play_ui_sound(sound: UiSound) {
+    if crate::gateway::get_notification_volume() <= 0.0 {
+        return;
+    }
     #[cfg(feature = "automation")]
     if crate::utils::test_hooks::mute_output() || crate::utils::test_hooks::silent_playback() {
         return;
@@ -220,7 +223,14 @@ fn generate_sound_samples(sound: UiSound, sample_rate: u32) -> Vec<f32> {
         }
     }
 
+    apply_volume(&mut samples, crate::gateway::get_notification_volume());
     samples
+}
+
+fn apply_volume(samples: &mut [f32], volume: f32) {
+    for sample in samples {
+        *sample *= volume;
+    }
 }
 
 fn play_sound_cpal(sound: UiSound) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -397,5 +407,19 @@ fn play_sound_fallback(sound: UiSound) {
                 break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_volume_scales_only_the_sound_it_is_given() {
+        let mut samples = [1.0f32, -0.5];
+        apply_volume(&mut samples, 0.25);
+        assert_eq!(samples, [0.25, -0.125]);
+        apply_volume(&mut samples, 0.0);
+        assert_eq!(samples, [0.0, 0.0]);
     }
 }

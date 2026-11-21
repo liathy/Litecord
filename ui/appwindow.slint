@@ -191,6 +191,8 @@ export component AppWindow inherits Window {
     callback download_attachment(string /* att_id */, string /* filename */, string /* url */);
     callback set_vad_threshold(float /* threshold */);
     callback set_mic_volume(float /* volume */);
+    callback change_notification_volume(float);
+    callback preview_notification_sound();
     callback toggle_test_mic();
     callback logout();
     callback switch_account(string /* account_id */);
@@ -628,6 +630,7 @@ export component AppWindow inherits Window {
     in-out property <string> selected_input_device: "Microfone Padrão do Sistema";
     in-out property <string> selected_output_device: "Alto-falantes Padrão do Sistema";
     in-out property <float> mic_level: 0.0; // Real-time mic volume level (0.0 to 1.0)
+    in-out property <float> notification_volume: 1.0; // Litecord's own sounds (0.0 to 1.0)
     in-out property <float> mic_volume: 1.0; // Microphone Input Gain Volume (0.0 to 2.0, 100% = 1.0)
     in-out property <float> vad_threshold: 0.40; // Voice Activity Detection Threshold (0.0 to 1.0, 0.40 = -60 dB)
     in-out property <bool> is_testing_mic: false; // Mic loopback ("Se ouvir") test active
@@ -3923,6 +3926,7 @@ export component AppWindow inherits Window {
         tr_settings_input_device: root.tr_settings_input_device;
         input_devices: root.input_devices;
         mic_volume <=> root.mic_volume;
+        notification_volume <=> root.notification_volume;
         tr_settings_threshold: root.tr_settings_threshold;
         vad_threshold <=> root.vad_threshold;
         tr_settings_mic_level: root.tr_settings_mic_level;
@@ -3977,6 +3981,8 @@ export component AppWindow inherits Window {
         select_output_device(arg0) => { root.select_output_device(arg0); }
         select_input_device(arg0) => { root.select_input_device(arg0); }
         set_mic_volume(arg0) => { root.set_mic_volume(arg0); }
+        change_notification_volume(arg0) => { root.change_notification_volume(arg0); }
+        preview_notification_sound => { root.preview_notification_sound(); }
         set_vad_threshold(arg0) => { root.set_vad_threshold(arg0); }
         toggle_test_mic => { root.toggle_test_mic(); }
         select_noise_suppression(arg0) => { root.select_noise_suppression(arg0); }

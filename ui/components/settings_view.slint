@@ -32,6 +32,7 @@ export component SettingsView inherits Rectangle {
     in property <string> tr_settings_input_device;
     in property <[AudioDeviceItem]> input_devices;
     in-out property <float> mic_volume;
+    in-out property <float> notification_volume;
     in property <string> tr_settings_threshold;
     in-out property <float> vad_threshold;
     in property <string> tr_settings_mic_level;
@@ -87,6 +88,8 @@ export component SettingsView inherits Rectangle {
     callback select_output_device(string);
     callback select_input_device(string);
     callback set_mic_volume(float);
+    callback change_notification_volume(float);
+    callback preview_notification_sound();
     callback set_vad_threshold(float);
     callback toggle_test_mic();
     callback select_noise_suppression(string);
@@ -259,6 +262,29 @@ export component SettingsView inherits Rectangle {
                                 }
                                 Text { text: Tr.output_hint; color: AppTheme.text-muted; font-size: TypeScale.small; wrap: word-wrap; }
                             }
+                            SettingsSection {
+                                title: Tr.notification_volume;
+                                VerticalLayout {
+                                    spacing: 8px;
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Slider {
+                                            horizontal-stretch: 1;
+                                            minimum: 0.0;
+                                            maximum: 1.0;
+                                            value: root.notification_volume;
+                                            changed(val) => {
+                                                root.notification_volume = val;
+                                                root.change_notification_volume(val);
+                                            }
+                                            released(val) => { root.preview_notification_sound(); }
+                                        }
+                                        Text { text: Math.round(root.notification_volume * 100) + "%"; width: 44px; horizontal-alignment: right; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 600; vertical-alignment: center; }
+                                    }
+                                    Text { text: Tr.notification_volume_desc; color: AppTheme.text-muted; font-size: TypeScale.small; wrap: word-wrap; }
+                                }
+                            }
+
                             SettingsSection {
                                 title: Tr.input_device;
                                 DeviceSelect {

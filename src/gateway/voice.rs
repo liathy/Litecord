@@ -446,8 +446,11 @@ pub async fn connect_voice_gateway(
                                     if let Ok(mut queues) = get_speaker_pcm_queues().lock() {
                                         let q = queues.entry(999999).or_insert_with(|| VecDeque::with_capacity(48000));
                                         q.clear();
-                                        for &s in &chime_samples {
-                                            q.push_back((s, s));
+                                        let chime_volume = get_notification_volume();
+                                        if chime_volume > 0.0 {
+                                            for &s in &chime_samples {
+                                                q.push_back((s * chime_volume, s * chime_volume));
+                                            }
                                         }
                                     }
                                     info!("🎵 Efeito sonoro de entrada no canal de voz injetado na fila dos alto-falantes!");
