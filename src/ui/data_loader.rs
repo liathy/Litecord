@@ -1079,6 +1079,11 @@ pub async fn fetch_and_populate_dms(
                     has_separator: false,
                     unread_count: unread_dm_count,
                     can_close: crate::ui::dm_close::is_closable(ch_type),
+                    dm_user: if ch_type == 1 {
+                        dm["recipients"][0]["id"].as_str().unwrap_or("").into()
+                    } else {
+                        "".into()
+                    },
                     ..Default::default()
                 });
             }
@@ -1096,6 +1101,7 @@ pub async fn fetch_and_populate_dms(
                 if let Some(ui) = app_w_ui.upgrade() {
                     let model = std::rc::Rc::new(slint::VecModel::from(ui_channels_clone));
                     ui.set_channels(model.into());
+                    crate::ui::presence::refresh_dms(&ui);
                     ui.set_total_dm_unread_count(crate::ui::helpers::get_total_dm_unreads());
                 }
             });

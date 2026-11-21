@@ -194,6 +194,10 @@ export component ProfileCard inherits Rectangle {
     in property <color> accent;
     in property <[ProfileRole]> roles;
     in property <string> mutual;
+    in property <bool> has_status;
+    in property <color> status_color;
+    in property <string> status;
+    in property <string> activity;
     in property <image> banner;
     in property <bool> has_banner;
     in property <bool> can_message: true;
@@ -284,6 +288,36 @@ export component ProfileCard inherits Rectangle {
                         color: AppTheme.text-secondary;
                         font-size: TypeScale.small;
                         overflow: elide;
+                    }
+                }
+
+                if root.has_status: VerticalLayout {
+                    spacing: 4px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 10px;
+                                height: 10px;
+                                border-radius: 5px;
+                                background: root.status_color;
+                            }
+                        }
+                        Text {
+                            text: root.status;
+                            color: AppTheme.text-secondary;
+                            font-size: TypeScale.small;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.activity != "": Text {
+                        text: root.activity;
+                        color: AppTheme.text-strong;
+                        font-size: TypeScale.small;
+                        font-weight: 600;
+                        wrap: word-wrap;
                     }
                 }
 

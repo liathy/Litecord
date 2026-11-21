@@ -66,7 +66,7 @@ fn avatar_url(user_id: &str, hash: &str) -> String {
 }
 
 /// The line under a member's name: their custom status, else what they are doing.
-fn activity_line(presence: &Value) -> String {
+pub(crate) fn activity_line(presence: &Value) -> String {
     let activities = presence["activities"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     if let Some(custom) = activities.iter().find(|a| a["type"].as_u64() == Some(4)) {
         let state = custom["state"].as_str().unwrap_or("").trim();
@@ -231,7 +231,7 @@ fn rgb(color: u32) -> Color {
     Color::from_rgb_u8((color >> 16) as u8, (color >> 8) as u8, color as u8)
 }
 
-fn status_color(status: &str) -> Color {
+pub(crate) fn status_color(status: &str) -> Color {
     rgb(match status {
         "online" => 0x23A55A,
         "idle" => 0xF0B232,
@@ -570,6 +570,32 @@ pub fn scrolled(first_row: usize, tx: Option<mpsc::Sender<GatewayCommand>>) {
     }
 }
 
+/// The member list's copy of a user's presence, for people who aren't friends.
+fn listed_presence(user_id: &str) -> Option<crate::ui::presence::Presence> {
+    with_state(|state| {
+        state.rows.entries.iter().flatten().find_map(|entry| match entry {
+            Entry::Member(member) if member.id == user_id => Some(crate::ui::presence::Presence {
+                status: member.status.clone(),
+                activity: member.activity.clone(),
+            }),
+            _ => None,
+        })
+    })
+}
+
+fn show_presence(ui: &AppWindow, user_id: &str) {
+    let presence = crate::ui::presence::get(user_id).or_else(|| listed_presence(user_id));
+    ui.set_profile_has_status(presence.is_some());
+    if let Some(presence) = presence {
+        ui.set_profile_status_color(status_color(&presence.status));
+        ui.set_profile_status(crate::ui::presence::status_label(&presence.status).into());
+        ui.set_profile_activity(presence.activity.as_str().into());
+    } else {
+        ui.set_profile_status("".into());
+        ui.set_profile_activity("".into());
+    }
+}
+
 fn show_profile(ui: &AppWindow, profile: &Profile, roles: &HashMap<String, Role>) {
     ui.set_profile_name(crate::utils::styled_text::plain_display_name(&profile.display_name).as_ref().into());
     ui.set_profile_username(profile.username.as_str().into());
@@ -602,6 +628,7 @@ pub fn open_profile(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: St
     let known = crate::gateway::get_user_name(user_id.parse().unwrap_or(0));
     show_profile(ui, &Profile { display_name: known, ..Default::default() }, &HashMap::new());
     ui.set_profile_user_id(user_id.as_str().into());
+    show_presence(ui, &user_id);
     ui.set_profile_has_banner(false);
     ui.set_profile_loading(true);
     ui.set_show_profile(true);

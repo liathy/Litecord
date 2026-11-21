@@ -234,7 +234,8 @@ fn peek<'a>(text: &'a str) -> Option<Peek<'a>> {
         t: Option<std::borrow::Cow<'a, str>>,
     }
     let h: Head = serde_json::from_str(text).ok()?;
-    let wanted = h.op != 0 || h.t.as_deref().is_some_and(|t| HANDLED_EVENTS.contains(&t));
+    let friend_presence = h.t.as_deref() == Some("PRESENCE_UPDATE") && !text.contains("\"guild_id\"");
+    let wanted = h.op != 0 || friend_presence || h.t.as_deref().is_some_and(|t| HANDLED_EVENTS.contains(&t));
     let permissions = h.op == 0 && h.t.as_deref().is_some_and(|t| PERMISSION_EVENTS.contains(&t));
     Some(Peek { op: h.op, seq: h.s, wanted, permissions, event_name: h.t })
 }
@@ -1386,6 +1387,7 @@ impl GatewayClient {
                 }
                 "READY_SUPPLEMENTAL" => {
                     info!("📌 Evento READY_SUPPLEMENTAL recebido da Gateway! Keys: {:?}", v["d"].as_object().map(|m| m.keys().collect::<Vec<_>>()));
+                    crate::ui::presence::on_ready(&v["d"]);
                     if let Some(vs_arr) = v["d"]["voice_states"].as_array() {
                         info!("📌 [READY_SUPPLEMENTAL] Encontrados {} voice_states na raiz!", vs_arr.len());
                         for vs in vs_arr {
@@ -1779,6 +1781,7 @@ impl GatewayClient {
                 "USER_GUILD_SETTINGS_UPDATE" => {
                     crate::ui::notifications::update_settings(&v["d"]);
                 }
+                "PRESENCE_UPDATE" => crate::ui::presence::on_event(&v["d"]),
                 "GUILD_MEMBER_LIST_UPDATE" => {
                     if let Some(guild_id) = v["d"]["guild_id"].as_str() {
                         let _ = self.event_tx.send(GatewayEvent::MemberListUpdated {
@@ -2093,8 +2096,11 @@ mod tests {
     #[test]
     fn only_events_the_app_uses_are_parsed_whole_but_every_sequence_counts() {
         // Presence and typing are most of what a big account receives: skipped.
-        let presence = r#"{"t":"PRESENCE_UPDATE","s":42,"op":0,"d":{"user":{"id":"1"},"status":"online","activities":[{"name":"x"}]}}"#;
+        let presence = r#"{"t":"PRESENCE_UPDATE","s":42,"op":0,"d":{"guild_id":"9","user":{"id":"1"},"status":"online","activities":[{"name":"x"}]}}"#;
         assert_eq!(peek(presence), Some(Peek { op: 0, seq: Some(42), wanted: false, permissions: false, event_name: Some("PRESENCE_UPDATE".into()) }));
+        // A friend's presence has no server, and is what DMs and profiles show.
+        let friend = r#"{"t":"PRESENCE_UPDATE","s":44,"op":0,"d":{"user":{"id":"1"},"status":"online","activities":[]}}"#;
+        assert!(peek(friend).unwrap().wanted);
         // Fields in any order, nested objects named like the head fields.
         let msg = r#"{"op":0,"d":{"t":"x","s":1,"op":9,"content":"hi"},"s":43,"t":"MESSAGE_CREATE"}"#;
         assert_eq!(peek(msg), Some(Peek { op: 0, seq: Some(43), wanted: true, permissions: false, event_name: Some("MESSAGE_CREATE".into()) }));

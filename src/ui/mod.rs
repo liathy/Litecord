@@ -15,6 +15,7 @@ pub mod guild_folders;
 pub mod helpers;
 pub mod member_list;
 pub mod notifications;
+pub mod presence;
 pub mod user_menu;
 pub mod data_loader;
 pub mod invite_cards;

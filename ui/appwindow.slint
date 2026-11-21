@@ -693,6 +693,10 @@ export component AppWindow inherits Window {
     in-out property <string> confirm_action: "";
     in-out property <string> confirm_message_id: "";
 
+    in-out property <length> pip_offset_x: 0px;
+    in-out property <length> pip_offset_y: 0px;
+    in-out property <bool> pip_dragging: false;
+
     // Channel header panel
     callback channel_panel_action(string, string, string);
     in-out property <string> channel_panel: "";
@@ -795,6 +799,10 @@ export component AppWindow inherits Window {
     callback stream_row_hovered(string);
     in-out property <string> profile_user_id;
     in-out property <string> profile_mutual;
+    in-out property <bool> profile_has_status: false;
+    in-out property <color> profile_status_color;
+    in-out property <string> profile_status: "";
+    in-out property <string> profile_activity: "";
     in-out property <image> profile_banner;
     in-out property <bool> profile_has_banner: false;
     callback profile_send_dm(string);
@@ -4092,6 +4100,10 @@ export component AppWindow inherits Window {
         accent: root.profile_accent;
         roles: root.profile_roles;
         mutual: root.profile_mutual;
+        has_status: root.profile_has_status;
+        status_color: root.profile_status_color;
+        status: root.profile_status;
+        activity: root.profile_activity;
         banner: root.profile_banner;
         has_banner: root.profile_has_banner;
         send_dm(text) => { root.profile_send_dm(text); }
@@ -4779,8 +4791,8 @@ export component AppWindow inherits Window {
     if root.is_in_voice && !root.is_voice_focused && root.has_active_stream && root.active_stream_user_id != "": Rectangle {
         property <length> view_x: self.absolute-position.x;
         property <length> view_y: self.absolute-position.y;
-        x: root.width - self.width - root.member_panel_width - 20px;
-        y: root.height - self.height - 84px;
+        x: clamp(root.width - self.width - root.member_panel_width - 20px + root.pip_offset_x, 8px, Math.max(8px, root.width - self.width - 8px));
+        y: clamp(root.height - self.height - 84px + root.pip_offset_y, 8px, Math.max(8px, root.height - self.height - 8px));
         width: 320px;
         height: 180px;
         z: 30;
@@ -4799,8 +4811,27 @@ export component AppWindow inherits Window {
             image-fit: contain;
         }
         pip_ta := TouchArea {
-            mouse-cursor: pointer;
-            clicked => { root.toggle_voice_focus(); }
+            mouse-cursor: self.pressed && root.pip_dragging ? MouseCursor.grabbing : MouseCursor.pointer;
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                    root.pip_dragging = false;
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    let dx = self.mouse-x - self.pressed-x;
+                    let dy = self.mouse-y - self.pressed-y;
+                    if (root.pip_dragging || dx > 4px || dx < -4px || dy > 4px || dy < -4px) {
+                        root.pip_dragging = true;
+                        root.pip_offset_x = clamp(root.pip_offset_x + dx, -root.width, root.width);
+                        root.pip_offset_y = clamp(root.pip_offset_y + dy, -root.height, root.height);
+                    }
+                }
+            }
+            clicked => {
+                if (!root.pip_dragging) { root.toggle_voice_focus(); }
+                root.pip_dragging = false;
+            }
         }
         if pip_ta.has-hover || pip_back_ta.has-hover || pip_pop_ta.has-hover || pip_stop_ta.has-hover: Rectangle {
             height: 34px;
