@@ -15,7 +15,7 @@ use crate::utils::emoji_cache;
 use crate::{AppWindow, EmojiPickerItem, EmojiRow, GifItem, GifRow};
 
 const MAX_GIFS: usize = 40;
-const GIFS_PER_ROW: usize = 4;
+const GIFS_PER_ROW: usize = 2;
 const PARALLEL_PREVIEWS: usize = 4;
 const MAX_PREVIEW_BYTES: usize = 6 * 1024 * 1024;
 const MAX_PREVIEW_SIDE: u32 = 2048;

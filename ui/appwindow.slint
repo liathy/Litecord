@@ -3295,99 +3295,6 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    // Discord-style Emoji Picker Box
-                    if root.show_emoji_picker : Rectangle {
-                        height: 240px;
-                        background: AppTheme.surface-sidebar;
-                        border-top-left-radius: 8px;
-                        border-top-right-radius: 8px;
-                        border-width: 1px;
-                        border-color: AppTheme.border-subtle;
-                        drop-shadow-blur: 10px;
-                        drop-shadow-color: AppTheme.surface-scrim;
-
-                        VerticalLayout {
-                            padding: 10px;
-                            spacing: 8px;
-
-                            HorizontalLayout {
-                                spacing: 8px;
-                                alignment: space-between;
-
-                                Text {
-                                    text: "Emojis";
-                                    color: AppTheme.text-strong;
-                                    font-size: 13px;
-                                    font-weight: 700;
-                                    vertical-alignment: center;
-                                }
-
-                                Rectangle {
-                                    width: 22px;
-                                    height: 22px;
-                                    border-radius: 11px;
-                                    background: close_emojis_ta.has-hover ? AppTheme.interactive-hover : transparent;
-
-                                    Image {
-                                        source: @image-url("../assets/x.svg");
-                                        width: 10px;
-                                        height: 10px;
-                                        colorize: AppTheme.text-muted;
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                    }
-
-                                    close_emojis_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => { root.show_emoji_picker = false; }
-                                    }
-                                }
-                            }
-
-                            // Emoji Grid Container
-                            ScrollView {
-                                vertical-stretch: 1;
-
-                                VerticalLayout {
-                                    spacing: 4px;
-
-                                    for row in root.emoji_rows: HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: start;
-                                        for e in row.emojis: Rectangle {
-                                            width: 34px;
-                                            height: 34px;
-                                            border-radius: 6px;
-                                            background: emoji_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
-                                            animate background { duration: 100ms; }
-
-                                            if e.img.width == 0 && !e.is_custom: Text {
-                                                text: e.code;
-                                                font-size: 20px;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
-
-                                            if e.img.width > 0: Image {
-                                                x: 5px;
-                                                y: 5px;
-                                                width: 24px;
-                                                height: 24px;
-                                                source: e.img;
-                                                image-fit: contain;
-                                            }
-
-                                            emoji_cell_ta := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => { root.select_emoji(e.code); }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // Files waiting to be sent with the next message
                     if root.pending_files.length > 0 || root.file_upload_error != "": Rectangle {
                         height: root.pending_files.length > 0 ? (root.file_upload_error != "" || root.file_uploading ? 84px : 64px) : 28px;
@@ -3463,150 +3370,6 @@ export component AppWindow inherits Window {
                                 color: root.file_uploading ? AppTheme.text-muted : AppTheme.danger;
                                 font-size: TypeScale.caption;
                                 overflow: elide;
-                            }
-                        }
-                    }
-
-                    // GIF picker
-                    if root.show_gif_picker : Rectangle {
-                        height: 340px;
-                        background: AppTheme.surface-sidebar;
-                        border-top-left-radius: 8px;
-                        border-top-right-radius: 8px;
-                        border-width: 1px;
-                        border-color: AppTheme.border-subtle;
-                        drop-shadow-blur: 10px;
-                        drop-shadow-color: AppTheme.surface-scrim;
-
-                        VerticalLayout {
-                            padding: 10px;
-                            spacing: 8px;
-
-                            HorizontalLayout {
-                                spacing: 8px;
-
-                                LineEdit {
-                                    horizontal-stretch: 1;
-                                    placeholder-text: Tr.gif_search;
-                                    accepted(query) => { root.search_gifs(query); }
-                                }
-
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 22px;
-                                        height: 22px;
-                                        border-radius: 11px;
-                                        background: close_gifs_ta.has-hover ? AppTheme.interactive-hover : transparent;
-
-                                        Image {
-                                            source: @image-url("../assets/x.svg");
-                                            width: 10px;
-                                            height: 10px;
-                                            colorize: AppTheme.text-muted;
-                                            x: (parent.width - self.width) / 2;
-                                            y: (parent.height - self.height) / 2;
-                                        }
-
-                                        close_gifs_ta := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => { root.show_gif_picker = false; }
-                                        }
-                                    }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                spacing: 6px;
-                                alignment: start;
-                                height: 26px;
-
-                                Rectangle {
-                                    width: 92px;
-                                    border-radius: 5px;
-                                    background: root.gif_tab == "favorites" ? AppTheme.interactive-selected : (gif_fav_ta.has-hover ? AppTheme.interactive-hover : transparent);
-                                    Text {
-                                        text: Tr.gif_favorites;
-                                        color: AppTheme.text-primary;
-                                        font-size: TypeScale.caption;
-                                        font-weight: 700;
-                                    }
-                                    gif_fav_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.gif_tab = "favorites";
-                                            root.open_gif_picker();
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    width: 92px;
-                                    border-radius: 5px;
-                                    background: root.gif_tab == "trending" ? AppTheme.interactive-selected : (gif_trend_ta.has-hover ? AppTheme.interactive-hover : transparent);
-                                    Text {
-                                        text: Tr.gif_trending;
-                                        color: AppTheme.text-primary;
-                                        font-size: TypeScale.caption;
-                                        font-weight: 700;
-                                    }
-                                    gif_trend_ta := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.gif_tab = "trending";
-                                            root.open_gif_picker();
-                                        }
-                                    }
-                                }
-                            }
-
-                            if root.gif_loading || root.gif_empty: Text {
-                                text: root.gif_loading ? "…" : Tr.gif_none;
-                                color: AppTheme.text-muted;
-                                font-size: TypeScale.small;
-                                horizontal-alignment: center;
-                            }
-
-                            ScrollView {
-                                vertical-stretch: 1;
-                                viewport-width: self.visible-width;
-
-                                VerticalLayout {
-                                    spacing: 6px;
-                                    alignment: start;
-
-                                    for row in root.gif_rows: HorizontalLayout {
-                                        spacing: 6px;
-                                        alignment: start;
-
-                                        for gif in row.items: Rectangle {
-                                            width: 148px;
-                                            height: 104px;
-                                            border-radius: 6px;
-                                            background: AppTheme.interactive-muted;
-                                            clip: true;
-
-                                            if gif.has_preview: Image {
-                                                width: 100%;
-                                                height: 100%;
-                                                source: gif.preview;
-                                                image-fit: cover;
-                                            }
-
-                                            if gif_cell_ta.has-hover: Rectangle {
-                                                background: AppTheme.accent-subtle;
-                                            }
-
-                                            gif_cell_ta := TouchArea {
-                                                mouse-cursor: pointer;
-                                                clicked => {
-                                                    root.send_message(gif.url);
-                                                    root.show_gif_picker = false;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -4131,6 +3894,253 @@ export component AppWindow inherits Window {
                                         sb_cell_ta := TouchArea {
                                             mouse-cursor: pointer;
                                             clicked => { root.play_soundboard_sound(s.id); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Discord-style Emoji Picker Box
+                    if root.show_emoji_picker : Rectangle {
+                        x: root.width - self.width - root.member_panel_width - 16px;
+                        y: root.height - self.height - 76px;
+                        width: 480px;
+                        height: 440px;
+                        background: AppTheme.surface-elevated;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: AppTheme.border-subtle;
+                        drop-shadow-blur: 10px;
+                        drop-shadow-color: AppTheme.surface-scrim;
+
+                        // Clicks on the popup stay on the popup.
+                        TouchArea {}
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: space-between;
+
+                                Text {
+                                    text: "Emojis";
+                                    color: AppTheme.text-strong;
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    border-radius: 11px;
+                                    background: close_emojis_ta.has-hover ? AppTheme.interactive-hover : transparent;
+
+                                    Image {
+                                        source: @image-url("../assets/x.svg");
+                                        width: 10px;
+                                        height: 10px;
+                                        colorize: AppTheme.text-muted;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+
+                                    close_emojis_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.show_emoji_picker = false; }
+                                    }
+                                }
+                            }
+
+                            // Emoji Grid Container
+                            ScrollView {
+                                vertical-stretch: 1;
+
+                                VerticalLayout {
+                                    spacing: 4px;
+
+                                    for row in root.emoji_rows: HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: start;
+                                        for e in row.emojis: Rectangle {
+                                            width: 34px;
+                                            height: 34px;
+                                            border-radius: 6px;
+                                            background: emoji_cell_ta.has-hover ? AppTheme.interactive-hover : transparent;
+                                            animate background { duration: 100ms; }
+
+                                            if e.img.width == 0 && !e.is_custom: Text {
+                                                text: e.code;
+                                                font-size: 20px;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+
+                                            if e.img.width > 0: Image {
+                                                x: 5px;
+                                                y: 5px;
+                                                width: 24px;
+                                                height: 24px;
+                                                source: e.img;
+                                                image-fit: contain;
+                                            }
+
+                                            emoji_cell_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => { root.select_emoji(e.code); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // GIF picker
+                    if root.show_gif_picker : Rectangle {
+                        x: root.width - self.width - root.member_panel_width - 16px;
+                        y: root.height - self.height - 76px;
+                        width: 480px;
+                        height: 520px;
+                        background: AppTheme.surface-elevated;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: AppTheme.border-subtle;
+                        drop-shadow-blur: 10px;
+                        drop-shadow-color: AppTheme.surface-scrim;
+
+                        // Clicks on the popup stay on the popup.
+                        TouchArea {}
+
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: Tr.gif_search;
+                                    accepted(query) => { root.search_gifs(query); }
+                                }
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 22px;
+                                        height: 22px;
+                                        border-radius: 11px;
+                                        background: close_gifs_ta.has-hover ? AppTheme.interactive-hover : transparent;
+
+                                        Image {
+                                            source: @image-url("../assets/x.svg");
+                                            width: 10px;
+                                            height: 10px;
+                                            colorize: AppTheme.text-muted;
+                                            x: (parent.width - self.width) / 2;
+                                            y: (parent.height - self.height) / 2;
+                                        }
+
+                                        close_gifs_ta := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.show_gif_picker = false; }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                height: 26px;
+
+                                Rectangle {
+                                    width: 92px;
+                                    border-radius: 5px;
+                                    background: root.gif_tab == "favorites" ? AppTheme.interactive-selected : (gif_fav_ta.has-hover ? AppTheme.interactive-hover : transparent);
+                                    Text {
+                                        text: Tr.gif_favorites;
+                                        color: AppTheme.text-primary;
+                                        font-size: TypeScale.caption;
+                                        font-weight: 700;
+                                    }
+                                    gif_fav_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.gif_tab = "favorites";
+                                            root.open_gif_picker();
+                                        }
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 92px;
+                                    border-radius: 5px;
+                                    background: root.gif_tab == "trending" ? AppTheme.interactive-selected : (gif_trend_ta.has-hover ? AppTheme.interactive-hover : transparent);
+                                    Text {
+                                        text: Tr.gif_trending;
+                                        color: AppTheme.text-primary;
+                                        font-size: TypeScale.caption;
+                                        font-weight: 700;
+                                    }
+                                    gif_trend_ta := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.gif_tab = "trending";
+                                            root.open_gif_picker();
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.gif_loading || root.gif_empty: Text {
+                                text: root.gif_loading ? "…" : Tr.gif_none;
+                                color: AppTheme.text-muted;
+                                font-size: TypeScale.small;
+                                horizontal-alignment: center;
+                            }
+
+                            ScrollView {
+                                vertical-stretch: 1;
+                                viewport-width: self.visible-width;
+
+                                VerticalLayout {
+                                    spacing: 6px;
+                                    alignment: start;
+
+                                    for row in root.gif_rows: HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: start;
+
+                                        for gif in row.items: Rectangle {
+                                            width: 222px;
+                                            height: 130px;
+                                            border-radius: 6px;
+                                            background: AppTheme.interactive-muted;
+                                            clip: true;
+
+                                            if gif.has_preview: Image {
+                                                width: 100%;
+                                                height: 100%;
+                                                source: gif.preview;
+                                                image-fit: cover;
+                                            }
+
+                                            if gif_cell_ta.has-hover: Rectangle {
+                                                background: AppTheme.accent-subtle;
+                                            }
+
+                                            gif_cell_ta := TouchArea {
+                                                mouse-cursor: pointer;
+                                                clicked => {
+                                                    root.send_message(gif.url);
+                                                    root.show_gif_picker = false;
+                                                }
+                                            }
                                         }
                                     }
                                 }
