@@ -136,6 +136,15 @@ export component ChatMessagesView inherits Rectangle {
     in-out property <string> tr_replying_to: "Replying to ";
     in-out property <length> scroll_y: 0px;
     in-out property <int> scroll_trigger: 0;
+    in property <string> highlight_id;
+    in property <bool> jumped;
+    in property <float> jump_fraction;
+    in property <int> jump_trigger;
+    callback jump_present();
+
+    changed jump_trigger => {
+        scroll_y = -Math.max(0px, msg_scroll.viewport-height - msg_scroll.visible-height) * root.jump_fraction;
+    }
     callback load_older_messages();
     callback open_link(string);
     callback download_attachment(string, string, string);
@@ -167,6 +176,38 @@ export component ChatMessagesView inherits Rectangle {
 
     changed at_bottom => {
         root.bottom_state_changed(at_bottom);
+    }
+
+    if root.jumped: Rectangle {
+        x: 16px;
+        y: parent.height - 40px;
+        width: parent.width - 32px;
+        height: 32px;
+        z: 30;
+        border-radius: 6px;
+        background: AppTheme.accent;
+        Text {
+            x: 12px;
+            height: parent.height;
+            text: "You're viewing older messages";
+            color: AppTheme.text-on-accent;
+            font-size: TypeScale.small;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        Text {
+            x: parent.width - self.preferred-width - 12px;
+            height: parent.height;
+            text: "Jump To Present";
+            color: AppTheme.text-on-accent;
+            font-size: TypeScale.small;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.jump_present(); }
+        }
     }
 
     msg_scroll := ScrollView {
@@ -247,7 +288,7 @@ export component ChatMessagesView inherits Rectangle {
 
                 Rectangle {
                 width: 100%;
-                background: row_hover.has-hover ? AppTheme.interactive-hover : transparent;
+                background: root.highlight_id != "" && msg.id == root.highlight_id ? AppTheme.accent-subtle : (row_hover.has-hover ? AppTheme.interactive-hover : transparent);
                 border-radius: 4px;
                 property <bool> is-collapsed: true;
 

@@ -11,7 +11,7 @@ import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard } from "components/message_tools.slint";
-import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen } from "components/channel_tools.slint";
+import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow } from "components/channel_tools.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
 
@@ -692,6 +692,16 @@ export component AppWindow inherits Window {
     in-out property <string> confirm_text: "";
     in-out property <string> confirm_action: "";
     in-out property <string> confirm_message_id: "";
+
+    // Channel header panel
+    callback channel_panel_action(string, string, string);
+    in-out property <string> channel_panel: "";
+    in-out property <[PanelRow]> channel_panel_rows: [];
+    in-out property <string> channel_panel_status: "";
+    in-out property <string> chat_highlight_id: "";
+    in-out property <bool> chat_jumped: false;
+    in-out property <float> chat_jump_fraction: 0;
+    in-out property <int> chat_jump_trigger: 0;
 
     // Channel tools
     callback channel_action(string, string, length, length);
@@ -3160,6 +3170,31 @@ export component AppWindow inherits Window {
                                 }
                             }
 
+                            if root.active_guild_id != "@me" && root.active_channel_id != "" && !root.call_chat_open: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/threads.svg");
+                                    icon-color: root.channel_panel == "threads" ? AppTheme.text-strong : AppTheme.text-muted;
+                                    clicked => { root.channel_panel_action("open", "threads", ""); }
+                                }
+                            }
+                            if root.active_guild_id != "@me" && root.active_channel_id != "" && !root.call_chat_open: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/bell.svg");
+                                    icon-color: root.channel_panel == "notifications" ? AppTheme.text-strong : AppTheme.text-muted;
+                                    clicked => { root.channel_panel_action("open", "notifications", ""); }
+                                }
+                            }
+                            if root.active_channel_id != "" && !root.call_chat_open: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/pin.svg");
+                                    icon-color: root.channel_panel == "pins" ? AppTheme.text-strong : AppTheme.text-muted;
+                                    clicked => { root.channel_panel_action("open", "pins", ""); }
+                                }
+                            }
+
                             // Member list button — servers only
                             if root.active_guild_id != "@me" && !root.call_chat_open: VerticalLayout {
                                 alignment: center;
@@ -3167,6 +3202,15 @@ export component AppWindow inherits Window {
                                     icon: @image-url("../assets/users.svg");
                                     icon-color: root.show_member_list ? AppTheme.text-strong : AppTheme.text-muted;
                                     clicked => { root.toggle_member_list(); }
+                                }
+                            }
+
+                            if root.active_channel_id != "" && !root.call_chat_open: VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/search.svg");
+                                    icon-color: root.channel_panel == "search" ? AppTheme.text-strong : AppTheme.text-muted;
+                                    clicked => { root.channel_panel_action("open", "search", ""); }
                                 }
                             }
 
@@ -3297,6 +3341,11 @@ export component AppWindow inherits Window {
                         open_link(url) => { root.open_link(url); }
                         open_profile(id) => { root.open_profile(id); }
                         quick_reactions: root.quick_reactions;
+                        highlight_id: root.chat_highlight_id;
+                        jumped: root.chat_jumped;
+                        jump_fraction: root.chat_jump_fraction;
+                        jump_trigger: root.chat_jump_trigger;
+                        jump_present => { root.channel_panel_action("present", "", ""); }
                         message_action(name, id, extra, x, y) => { root.message_action(name, id, extra, x, y); }
                         open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                         download_attachment(id, fn, url) => { root.download_attachment(id, fn, url); }
@@ -4941,6 +4990,21 @@ export component AppWindow inherits Window {
         can_invite: root.can_create_invite;
         close => { root.channel_menu_open = false; }
         action(name, id) => { root.channel_action(name, id, 0px, 0px); }
+    }
+
+    if root.channel_panel != "": ChannelPanel {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        kind: root.channel_panel;
+        rows: root.channel_panel_rows;
+        status: root.channel_panel_status;
+        close => { root.channel_panel_action("close", "", ""); }
+        pick_row(id, title) => { root.channel_panel_action("row", id, title); }
+        jump(id, channel) => { root.channel_panel_action("jump", id, channel); }
+        unpin(id) => { root.channel_panel_action("ask_unpin", id, ""); }
+        search(query) => { root.channel_panel_action("search", query, ""); }
     }
 
     if root.channel_confirm_text != "": ConfirmDialog {

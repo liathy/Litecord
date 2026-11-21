@@ -1274,6 +1274,8 @@ fn paint_channel_messages(
             }
             ui.set_has_more_older_messages(has_more);
             ui.set_is_loading_older_messages(false);
+            ui.set_chat_jumped(false);
+            ui.set_chat_highlight_id("".into());
 
             let mut ui_msgs: Vec<ChatMessage> = if compact_msgs.is_empty() {
                 vec![ChatMessage {
@@ -1310,6 +1312,51 @@ fn paint_channel_messages(
             mark_chat_painted();
 
             request_chat_scroll_to_bottom(app_weak.clone());
+        }
+    });
+}
+
+/// Shows the messages around `target`, highlights it and scrolls to it.
+pub fn show_messages_around(
+    values: &[serde_json::Value],
+    channel_id: &str,
+    target: &str,
+    app_weak: slint::Weak<AppWindow>,
+) {
+    let compact: Vec<CompactCachedMessage> = values.iter().map(CompactCachedMessage::from_value).collect();
+    if let Some(oldest) = compact.iter().filter(|m| !m.id.is_empty()).min_by_key(|m| m.id.parse::<u64>().unwrap_or(u64::MAX)) {
+        get_oldest_message_map().lock().unwrap().insert(channel_id.to_string(), oldest.id.clone());
+    }
+    let (channel, target) = (channel_id.to_string(), target.to_string());
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_active_channel_id().as_str() != channel {
+            return;
+        }
+        let mut ordered: Vec<&CompactCachedMessage> = compact.iter().collect();
+        ordered.sort_by_key(|m| m.id.parse::<u64>().unwrap_or(0));
+        let mut ui_msgs: Vec<ChatMessage> = ordered.iter().map(|m| m.to_chat_message(&channel, &app_weak)).collect();
+        regroup_messages(&mut ui_msgs);
+        avatar_cache::get_avatar_cache().hydrate(&mut ui_msgs, &app_weak);
+        crate::ui::invite_cards::hydrate(&mut ui_msgs, &app_weak);
+        let index = ui_msgs.iter().position(|m| m.id == target.as_str()).unwrap_or(0);
+        let fraction = if ui_msgs.len() > 1 { index as f32 / (ui_msgs.len() - 1) as f32 } else { 0.0 };
+        ui.set_has_more_older_messages(ui_msgs.len() >= 30);
+        ui.set_is_loading_older_messages(false);
+        ui.set_messages(std::rc::Rc::new(slint::VecModel::from(ui_msgs)).into());
+        ui.set_chat_highlight_id(target.as_str().into());
+        ui.set_chat_jump_fraction(fraction);
+        ui.set_chat_jumped(true);
+        // Later than the bottom pin of a channel that was just opened, and after images settle.
+        for delay in [20, 120, 400, 900, 1650] {
+            let app = app_weak.clone();
+            slint::Timer::single_shot(std::time::Duration::from_millis(delay), move || {
+                if let Some(ui) = app.upgrade() {
+                    if ui.get_chat_jumped() {
+                        ui.set_chat_jump_trigger(ui.get_chat_jump_trigger() + 1);
+                    }
+                }
+            });
         }
     });
 }

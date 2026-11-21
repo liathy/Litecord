@@ -540,3 +540,109 @@ export component ChannelSettingsScreen inherits Rectangle {
         }
     }
 }
+
+export struct PanelRow {
+    id: string,
+    channel_id: string,
+    title: string,
+    text: string,
+    time: string,
+    can_jump: bool,
+    can_unpin: bool,
+    checked: bool,
+}
+
+export component ChannelPanel inherits Rectangle {
+    in property <string> kind;
+    in property <[PanelRow]> rows;
+    in property <string> status;
+    callback close();
+    callback pick_row(string, string);
+    callback jump(string, string);
+    callback unpin(string);
+    callback search(string);
+
+    TouchArea { clicked => { root.close(); } }
+
+    Rectangle {
+        x: Math.max(8px, root.width - self.width - 16px);
+        y: 76px;
+        width: Math.min(420px, root.width - 16px);
+        height: Math.min(560px, root.height - 92px);
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        TouchArea { }
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Text {
+                text: root.kind == "pins" ? "Pinned Messages" : (root.kind == "threads" ? "Threads" : (root.kind == "notifications" ? "Notification Settings" : "Search"));
+                color: AppTheme.text-strong;
+                font-size: TypeScale.title;
+                font-weight: 700;
+            }
+            if root.kind == "search": LineEdit {
+                placeholder-text: "Search";
+                accepted(query) => { root.search(query); }
+            }
+            if root.status != "": Text {
+                text: root.status;
+                color: AppTheme.text-muted;
+                font-size: TypeScale.small;
+                wrap: word-wrap;
+            }
+            ScrollView {
+                vertical-stretch: 1;
+                viewport-width: self.visible-width;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 4px;
+                    for item in root.rows: Rectangle {
+                        height: 62px;
+                        border-radius: 6px;
+                        background: row_ta.has-hover ? AppTheme.interactive-hover : AppTheme.surface-input;
+                        animate background { duration: 90ms; easing: ease-out; }
+                        row_ta := TouchArea {
+                            mouse-cursor: item.can_jump ? default : pointer;
+                            clicked => {
+                                if (!item.can_jump) { root.pick_row(item.id, item.title); }
+                            }
+                        }
+                        VerticalLayout {
+                            x: 10px;
+                            width: parent.width - (item.can_jump ? (item.can_unpin ? 140px : 76px) : 42px);
+                            alignment: center;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Text { text: item.title; color: AppTheme.text-strong; font-size: TypeScale.small; font-weight: 600; overflow: elide; }
+                                if item.time != "": Text { text: item.time; color: AppTheme.text-muted; font-size: TypeScale.micro; vertical-alignment: center; }
+                            }
+                            Text { text: item.text; color: AppTheme.text-secondary; font-size: TypeScale.caption; overflow: elide; }
+                        }
+                        if item.checked: Rectangle {
+                            x: parent.width - 28px;
+                            y: (parent.height - 16px) / 2;
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: AppTheme.accent;
+                        }
+                        if item.can_jump: HorizontalLayout {
+                            x: parent.width - self.preferred-width - 8px;
+                            y: 13px;
+                            height: 36px;
+                            spacing: 4px;
+                            ActionButton { text: "Jump"; clicked => { root.jump(item.id, item.channel_id); } }
+                            if item.can_unpin: ActionButton { text: "Unpin"; danger: true; clicked => { root.unpin(item.id); } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
