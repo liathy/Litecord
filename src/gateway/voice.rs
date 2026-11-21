@@ -309,6 +309,7 @@ pub async fn connect_voice_gateway(
                                             }
                                             let t_now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
                                             let hb = serde_json::json!({ "op": 3, "d": t_now });
+                                            crate::ui::voice_stats::heartbeat_sent(t_now);
                                             let mut w = write_hb.lock().await;
                                             if let Err(e) = w.send(Message::Text(hb.to_string().into())).await {
                                                 warn!("⚠️ Falha ao enviar Heartbeat de voz (op=3): {:?}", e);
@@ -319,6 +320,7 @@ pub async fn connect_voice_gateway(
                                 }
                                 2 => {
                                     // Voice Opcode 2: READY!
+                                    crate::ui::voice_stats::reset();
                                     set_is_connected_to_voice(true);
                                     let ssrc = val["d"]["ssrc"].as_u64().unwrap_or(12345) as u32;
                                     *active_ssrc.lock().unwrap() = ssrc;
@@ -944,6 +946,7 @@ pub async fn connect_voice_gateway(
 
                                                                             let now = std::time::Instant::now();
                                                                             let rtp_seq = u16::from_be_bytes([pkt[2], pkt[3]]);
+                                                                            crate::ui::voice_stats::packet_received();
                                                                             #[cfg(feature = "automation")]
                                                                             crate::utils::test_hooks::voice_received(rtp_seq);
                                                                             let last_time_opt = ssrc_last_pkt_time.get(&ssrc_recv).copied();
@@ -969,6 +972,7 @@ pub async fn connect_voice_gateway(
                                                                                         continue;
                                                                                     }
                                                                                     if let VoiceSeq::Gap(missed) = arrival {
+                                                                                        crate::ui::voice_stats::packets_lost(missed as u64);
                                                                                         if let Some(n) = VOICE_GAP_LOG.hit() {
                                                                                             warn!("📊 [VOICE RX] {} falha(s) de sequência (pacotes perdidos ou fora de ordem)", n);
                                                                                         }
@@ -2053,6 +2057,7 @@ pub async fn connect_voice_gateway(
                                  3 | 6 => {
                                      // Heartbeat answer: this gateway version echoes op 3, others send op 6.
                                      voice_hb_acked.store(true, Ordering::SeqCst);
+                                     crate::ui::voice_stats::heartbeat_acked();
                                      info!("Voice Gateway Heartbeat ACK (op={}) recebido!", op);
                                  }
                                  11 => {

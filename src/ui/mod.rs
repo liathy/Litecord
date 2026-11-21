@@ -10,6 +10,7 @@ pub mod friends;
 pub mod gif_player;
 pub mod navigation;
 pub mod voice_flags;
+pub mod voice_stats;
 pub mod voice_identity;
 pub mod gif_picker;
 pub mod guild_folders;

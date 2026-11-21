@@ -11,7 +11,7 @@ import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { CallChrome } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
-import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow } from "components/channel_tools.slint";
+import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow, ConnectionDetails } from "components/channel_tools.slint";
 import { FriendsPage, FriendRow } from "components/friends_view.slint";
 import { GifPlayback } from "components/chat_messages_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
@@ -703,6 +703,14 @@ export component AppWindow inherits Window {
     in-out property <length> pip_offset_x: 0px;
     in-out property <length> pip_offset_y: 0px;
     in-out property <bool> pip_dragging: false;
+
+    // Call connection details
+    callback voice_stats_toggle();
+    in-out property <bool> voice_stats_open: false;
+    in-out property <string> voice_stats_ping: "";
+    in-out property <string> voice_stats_average: "";
+    in-out property <string> voice_stats_loss: "";
+    in-out property <int> voice_stats_quality: 0;
 
     // Friends page
     callback friends_action(string, string);
@@ -1853,6 +1861,8 @@ export component AppWindow inherits Window {
                 friends_active: root.friends_open;
                 friends_pending: root.friends_pending_count;
                 open_friends => { root.friends_action("open", ""); }
+                toggle_voice_stats => { root.voice_stats_toggle(); }
+                voice_quality: root.voice_stats_quality;
                 close_dm(id) => { root.close_dm(id); }
                 toggle_category(id) => { root.toggle_category(id); }
                 reorder_channel(from, to) => { root.reorder_channel(from, to); }
@@ -5126,6 +5136,20 @@ export component AppWindow inherits Window {
         jump(id, channel) => { root.channel_panel_action("jump", id, channel); }
         unpin(id) => { root.channel_panel_action("ask_unpin", id, ""); }
         search(query) => { root.channel_panel_action("search", query, ""); }
+    }
+
+    if root.voice_stats_open: ConnectionDetails {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        left: 80px;
+        channel: root.current_voice_channel;
+        ping: root.voice_stats_ping;
+        average: root.voice_stats_average;
+        loss: root.voice_stats_loss;
+        quality: root.voice_stats_quality;
+        close => { root.voice_stats_toggle(); }
     }
 
     if root.friends_confirm_text != "": ConfirmDialog {

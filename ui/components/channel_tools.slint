@@ -646,3 +646,69 @@ export component ChannelPanel inherits Rectangle {
         }
     }
 }
+
+component StatRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    height: 24px;
+    Text {
+        horizontal-stretch: 1;
+        text: root.label;
+        color: AppTheme.text-secondary;
+        font-size: TypeScale.small;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.value;
+        color: AppTheme.text-strong;
+        font-size: TypeScale.small;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+}
+
+export component ConnectionDetails inherits Rectangle {
+    in property <length> left;
+    in property <string> channel;
+    in property <string> ping;
+    in property <string> average;
+    in property <string> loss;
+    in property <int> quality;
+    callback close();
+
+    TouchArea { clicked => { root.close(); } }
+
+    Rectangle {
+        x: root.left;
+        y: root.height - self.height - 158px;
+        width: 280px;
+        height: box.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        TouchArea { }
+        box := VerticalLayout {
+            padding: 14px;
+            spacing: 4px;
+            Text {
+                text: "Connection Details";
+                color: root.quality == 3 ? AppTheme.danger : (root.quality == 2 ? AppTheme.warning : AppTheme.success);
+                font-size: TypeScale.body;
+                font-weight: 700;
+            }
+            Text {
+                text: root.channel;
+                color: AppTheme.text-muted;
+                font-size: TypeScale.caption;
+                overflow: elide;
+            }
+            Rectangle { height: 6px; }
+            StatRow { label: "Ping"; value: root.ping; }
+            StatRow { label: "Average Ping"; value: root.average; }
+            StatRow { label: "Incoming Packet Loss"; value: root.loss; }
+        }
+    }
+}

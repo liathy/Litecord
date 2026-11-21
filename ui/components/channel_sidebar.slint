@@ -121,6 +121,8 @@ export component ChannelSidebar inherits Rectangle {
     callback stream_row_hover(string, string, length, bool);
     callback channel_action(string, string, length, length);
     callback open_friends();
+    callback toggle_voice_stats();
+    in property <int> voice_quality;
     in property <bool> in_dms;
     in property <bool> friends_active;
     in property <int> friends_pending;
@@ -692,6 +694,13 @@ export component ChannelSidebar inherits Rectangle {
                             mouse-cursor: pointer;
                             clicked => { root.open_voice_room(); }
                         }
+                    }
+
+                    VoicePanelButton {
+                        width: 34px;
+                        icon: @image-url("../../assets/signal.svg");
+                        icon-color: root.voice_quality == 3 ? AppTheme.danger : (root.voice_quality == 2 ? AppTheme.warning : AppTheme.success);
+                        clicked => { root.toggle_voice_stats(); }
                     }
 
                     VoicePanelButton {
