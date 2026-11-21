@@ -2891,6 +2891,7 @@ export component AppWindow inherits Window {
                         sharing: root.is_screen_sharing;
                         has_stream: root.has_active_stream || root.is_screen_sharing;
                         members_collapsed: root.voice_members_collapsed;
+                        strip_visible: root.focused_stream_uid != "" && !root.voice_members_collapsed && root.voice_participants.length > 1;
                         web_share_active: root.web_share_active;
                         web_share_pending: root.web_share_pending;
                         share_label: root.is_screen_sharing ? root.tr_stop_screen_share : root.tr_start_screen_share;

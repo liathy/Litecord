@@ -69,6 +69,7 @@ export component CallChrome inherits Rectangle {
     in property <bool> sharing;
     in property <bool> has_stream;
     in property <bool> members_collapsed;
+    in property <bool> strip_visible;
     in property <bool> web_share_active;
     in property <bool> web_share_pending;
     in property <string> share_label;
@@ -76,7 +77,7 @@ export component CallChrome inherits Rectangle {
     in property <string> chat_label;
     in property <string> leave_label;
     in property <string> web_label;
-    out property <bool> pointer_inside: top_ta.has-hover || bottom_ta.has-hover;
+    out property <bool> pointer_inside: top_ta.has-hover || bottom_ta.has-hover || members_ta.has-hover;
 
     callback toggle_mic();
     callback toggle_headset();
@@ -151,50 +152,6 @@ export component CallChrome inherits Rectangle {
 
         bottom_ta := TouchArea {
             enabled: root.shown;
-
-            // Show or hide the people who are not streaming
-            Rectangle {
-                x: (parent.width - self.width) / 2;
-                y: 4px;
-                width: 62px;
-                height: 28px;
-                border-radius: 14px;
-                background: members_ta.has-hover ? AppTheme.surface-pressed : AppTheme.surface-elevated;
-                animate background { duration: 120ms; easing: ease-out; }
-                accessible-role: button;
-                accessible-label: "Participants";
-
-                HorizontalLayout {
-                    alignment: center;
-                    spacing: 5px;
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            width: 14px;
-                            height: 14px;
-                            source: root.members_collapsed ? @image-url("../../assets/chevron-up.svg") : @image-url("../../assets/chevron-down.svg");
-                            colorize: AppTheme.text-strong;
-                            image-fit: contain;
-                        }
-                    }
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            width: 16px;
-                            height: 16px;
-                            source: @image-url("../../assets/users.svg");
-                            colorize: AppTheme.text-strong;
-                            image-fit: contain;
-                        }
-                    }
-                }
-
-                members_ta := TouchArea {
-                    enabled: root.shown;
-                    mouse-cursor: pointer;
-                    clicked => { root.toggle_members(); }
-                }
-            }
 
             center_row := HorizontalLayout {
                 x: (parent.width - self.preferred-width) / 2;
@@ -280,4 +237,52 @@ export component CallChrome inherits Rectangle {
             }
         }
     }
+
+            // Show or hide the people who are not streaming
+            Rectangle {
+                x: (root.width - self.width) / 2;
+                // On the top edge of the tile row, or above the controls without one.
+                y: root.height - (root.strip_visible ? 198px : 100px) + (root.shown ? 0px : 6px);
+                visible: self.opacity > 0;
+                opacity: root.shown ? 1 : 0;
+                animate y, opacity { duration: 160ms; easing: ease-out; }
+                width: 62px;
+                height: 28px;
+                border-radius: 14px;
+                background: members_ta.has-hover ? AppTheme.surface-pressed : AppTheme.surface-elevated;
+                animate background { duration: 120ms; easing: ease-out; }
+                accessible-role: button;
+                accessible-label: "Participants";
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 5px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 14px;
+                            height: 14px;
+                            source: root.members_collapsed ? @image-url("../../assets/chevron-up.svg") : @image-url("../../assets/chevron-down.svg");
+                            colorize: AppTheme.text-strong;
+                            image-fit: contain;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            width: 16px;
+                            height: 16px;
+                            source: @image-url("../../assets/users.svg");
+                            colorize: AppTheme.text-strong;
+                            image-fit: contain;
+                        }
+                    }
+                }
+
+                members_ta := TouchArea {
+                    enabled: root.shown;
+                    mouse-cursor: pointer;
+                    clicked => { root.toggle_members(); }
+                }
+            }
 }
