@@ -868,13 +868,14 @@ pub async fn connect_voice_gateway(
                                                                                                 warn!("🔑 [DAVE DIAG] decrypt() FALHOU para SSRC={} UserID={} (payload_len={}, group_users={:?}): {:?}",
                                                                                                     ssrc_recv, sender_user_id, transport_payload.len(), s.get_user_ids(), e);
                                                                                             }
-                                                                                            let has_dave_magic = transport_payload.len() >= 4 && transport_payload.ends_with(&[0xFA, 0xFA]);
                                                                                             diag_rx.rx_dave_fail.fetch_add(1, Ordering::Relaxed);
-                                                                                            if has_dave_magic {
+                                                                                            // Bytes that did not decrypt are noise: decoded as Opus they play as a
+                                                                                            // full-volume pop. Only the fixed silence frame is sent without DAVE.
+                                                                                            if transport_payload == OPUS_SILENCE_FRAME {
+                                                                                                (transport_payload.to_vec(), true)
+                                                                                            } else {
                                                                                                 diag_rx.rx_dave_dropped.fetch_add(1, Ordering::Relaxed);
                                                                                                 (Vec::new(), false)
-                                                                                            } else {
-                                                                                                (transport_payload.to_vec(), true)
                                                                                             }
                                                                                         }
                                                                                     }
@@ -908,6 +909,7 @@ pub async fn connect_voice_gateway(
                                                                         let mut decoded_count = 0;
                                                                         let mut plc_pairs: Vec<(f32, f32)> = Vec::new();
                                                                         let mut pkt_channels = 2usize;
+                                                                        let mut start_of_speech = false;
                                                                         if can_decode && !opus_data.is_empty() {
                                                                             let mut raw_opus = opus_data.as_slice();
 
@@ -949,6 +951,7 @@ pub async fn connect_voice_gateway(
 
                                                                             if is_new_talkspurt {
                                                                                 // New burst of speech after silence/VAD gap: sync sequence and skip false PLC to avoid pops
+                                                                                start_of_speech = true;
                                                                                 ssrc_expected_seq.insert(ssrc_recv, rtp_seq.wrapping_add(1));
                                                                             } else {
                                                                                 if let Some(last_seq) = ssrc_expected_seq.get(&ssrc_recv).copied() {
@@ -1011,7 +1014,10 @@ pub async fn connect_voice_gateway(
                                                                             for &s in pcm_out_buf[..total_samples].iter() {
                                                                                 VoiceDiag::note_peak(&diag_rx.rx_peak_milli, s);
                                                                             }
-                                                                            let dump_vec = decoded_voice_pairs(&pcm_out_buf[..total_samples], pkt_channels);
+                                                                            let mut dump_vec = decoded_voice_pairs(&pcm_out_buf[..total_samples], pkt_channels);
+                                                                            if start_of_speech {
+                                                                                fade_in_voice(&mut dump_vec);
+                                                                            }
                                                                                     ssrc_last_pkt_time.insert(ssrc_recv, std::time::Instant::now());
 
                                                                                     if let Ok(mut queues) = speaker_queues_rx.lock() {
@@ -2817,6 +2823,15 @@ mod voice_seq_tests {
     }
 
     #[test]
+    fn speech_ramps_up_and_keeps_its_level_after_the_fade() {
+        let mut samples = vec![(1.0f32, -1.0f32); 200];
+        fade_in_voice(&mut samples);
+        assert_eq!(samples[0], (0.0, 0.0));
+        assert!(samples[48].0 > 0.4 && samples[48].0 < 0.6);
+        assert_eq!(samples[96], (1.0, -1.0));
+    }
+
+    #[test]
     fn a_reconnect_retires_the_previous_connection() {
         let current = std::sync::atomic::AtomicU64::new(7);
         assert_eq!(next_voice_connection_id(&current, 7), Some(8));
@@ -2915,6 +2930,19 @@ mod output_device_wait_tests {
             wait = Some(next);
         }
         assert_eq!(seen, vec![500, 1000, 2000, 4000, 5000, 5000]);
+    }
+}
+
+const OPUS_SILENCE_FRAME: [u8; 3] = [0xF8, 0xFF, 0xFE];
+/// 2 ms at 48 kHz: too short to hear or to delay speech, long enough to avoid a click.
+const VOICE_FADE_IN_SAMPLES: usize = 96;
+
+/// Speech starting from silence ramps up instead of jumping to its first sample.
+fn fade_in_voice(samples: &mut [(f32, f32)]) {
+    for (index, sample) in samples.iter_mut().take(VOICE_FADE_IN_SAMPLES).enumerate() {
+        let gain = index as f32 / VOICE_FADE_IN_SAMPLES as f32;
+        sample.0 *= gain;
+        sample.1 *= gain;
     }
 }
 
