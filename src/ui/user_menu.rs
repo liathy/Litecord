@@ -44,6 +44,8 @@ pub fn open(ui: &AppWindow, http: Option<DiscordHttpClient>, row_id: &str, x: f3
     ui.set_user_menu_in_voice(in_voice);
     ui.set_user_menu_volume(volume);
     ui.set_user_menu_muted(muted);
+    ui.set_user_menu_has_stream(!is_self && crate::screen_capture::peer_is_streaming(numeric));
+    ui.set_user_menu_stream_volume(crate::screen_capture::audio_loopback::get_stream_volume(numeric).min(1.0));
     ui.set_user_menu_server_muted(false);
     ui.set_user_menu_server_deafened(false);
     ui.set_user_menu_can_mute(false);

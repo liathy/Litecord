@@ -432,6 +432,10 @@ export component UserContextMenu inherits Rectangle {
     callback close();
     callback action(string);
     callback volume_changed(float);
+    in property <bool> has_stream;
+    in-out property <float> stream_volume: 1.0;
+    property <float> stream_volume_before_mute: 1.0;
+    callback stream_volume_changed(float);
     callback toggle_mute();
 
     property <bool> has_moderation: (root.in_voice && (root.can_mute || root.can_deafen || root.can_move)) || root.can_kick || root.can_ban;
@@ -521,6 +525,42 @@ export component UserContextMenu inherits Rectangle {
                     clicked => {
                         root.muted = !root.muted;
                         root.toggle_mute();
+                    }
+                }
+
+                if !root.is_self && root.has_stream: MenuLine { }
+                if !root.is_self && root.has_stream: VerticalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 2px;
+                    Text {
+                        text: "Stream Volume  " + Math.round(root.stream_volume * 100) + "%";
+                        color: AppTheme.text-primary;
+                        font-size: TypeScale.small;
+                        font-weight: 500;
+                    }
+                    Slider {
+                        minimum: 0.0;
+                        maximum: 1.0;
+                        value: root.stream_volume;
+                        changed(val) => {
+                            root.stream_volume = val;
+                            root.stream_volume_changed(val);
+                        }
+                    }
+                }
+                if !root.is_self && root.has_stream: MenuRow {
+                    text: "Mute Stream";
+                    has-check: true;
+                    checked: root.stream_volume <= 0.001;
+                    clicked => {
+                        if (root.stream_volume > 0.001) {
+                            root.stream_volume_before_mute = root.stream_volume;
+                            root.stream_volume = 0;
+                        } else {
+                            root.stream_volume = root.stream_volume_before_mute;
+                        }
+                        root.stream_volume_changed(root.stream_volume);
                     }
                 }
 
