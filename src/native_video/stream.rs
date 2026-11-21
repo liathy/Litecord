@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroU16;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -654,6 +654,12 @@ pub async fn connect_stream_sender(
     let mut video_ssrc = 0u32;
     let mut rtx_ssrc = 0u32;
     let mut mode_str = "aead_aes256_gcm_rtpsize".to_string();
+    let dave: Arc<Mutex<Option<DaveSession>>> = Arc::new(Mutex::new(None));
+    let saved_external_sender: Arc<Mutex<Option<Vec<u8>>>> = Arc::new(Mutex::new(None));
+    // Until the server says otherwise, nothing is sent without DAVE.
+    let dave_required = Arc::new(AtomicBool::new(true));
+    let mut dave_group = 0u64;
+    let mut pending_dave_version: Option<u64> = None;
     let mut socket: Option<Arc<UdpSocket>> = None;
     let mut target: Option<SocketAddr> = None;
     let mut read_timeout = Duration::from_secs(60);
@@ -687,7 +693,7 @@ pub async fn connect_stream_sender(
                                 "streams": [
                                     { "type": "screen", "rid": "100", "quality": 100 }
                                 ],
-                                "max_dave_protocol_version": 0
+                                "max_dave_protocol_version": 1
                             }
                         });
                         if let Err(e) = send_text(&write, identify).await {
@@ -778,6 +784,50 @@ pub async fn connect_stream_sender(
                         });
                         let _ = send_text(&write, select).await;
                     }
+                    21 => {
+                        let transition = value["d"]["transition_id"].as_u64().unwrap_or(0);
+                        let version = value["d"]["protocol_version"].as_u64().unwrap_or(1);
+                        if transition == 0 {
+                            dave_required.store(version > 0, Ordering::Relaxed);
+                        } else {
+                            pending_dave_version = Some(version);
+                            let _ = send_text(&write, json!({ "op": 23, "d": { "transition_id": transition } })).await;
+                        }
+                    }
+                    22 => {
+                        if let Some(version) = pending_dave_version.take() {
+                            dave_required.store(version > 0, Ordering::Relaxed);
+                        }
+                    }
+                    24 => {
+                        if value["d"]["epoch"].as_u64() == Some(1) {
+                            let version = value["d"]["protocol_version"].as_u64().unwrap_or(1).max(1) as u16;
+                            dave_required.store(true, Ordering::Relaxed);
+                            let key_package = {
+                                let mut guard = dave.lock().unwrap();
+                                match DaveSession::new(NonZeroU16::new(version).unwrap_or(NonZeroU16::MIN), user_id, dave_group.max(1), None) {
+                                    Ok(mut fresh) => {
+                                        if let Some(external) = saved_external_sender.lock().unwrap().as_ref() {
+                                            let _ = fresh.set_external_sender(external);
+                                        }
+                                        let package = fresh.create_key_package().ok();
+                                        *guard = Some(fresh);
+                                        package
+                                    }
+                                    Err(e) => {
+                                        log::warn!("🎬 [GO LIVE TX] DAVE não reiniciou: {:?}", e);
+                                        None
+                                    }
+                                }
+                            };
+                            if let Some(package) = key_package {
+                                let mut packet = vec![26u8];
+                                packet.extend_from_slice(&package);
+                                let mut sink = write.lock().await;
+                                let _ = sink.send(Message::Binary(packet.into())).await;
+                            }
+                        }
+                    }
                     4 => {
                         let mut secret_key_bytes = Vec::new();
                         if let Some(keys) = value["d"]["secret_key"].as_array() {
@@ -786,6 +836,23 @@ pub async fn connect_stream_sender(
                         if secret_key_bytes.len() != 32 {
                             log::warn!("🎬 [GO LIVE TX] Secret key inválida (len={})", secret_key_bytes.len());
                             break;
+                        }
+
+                        dave_group = value["d"]["media_session_id"]
+                            .as_u64()
+                            .filter(|id| *id != 0)
+                            .unwrap_or_else(|| server_id.parse::<u64>().unwrap_or(1).saturating_sub(1))
+                            .max(1);
+                        let dave_version = value["d"]["dave_protocol_version"].as_u64().unwrap_or(1);
+                        dave_required.store(dave_version > 0, Ordering::Relaxed);
+                        if dave_version > 0 {
+                            let mut session = dave.lock().unwrap();
+                            if session.is_none() {
+                                match DaveSession::new(NonZeroU16::new(dave_version as u16).unwrap_or(NonZeroU16::MIN), user_id, dave_group, None) {
+                                    Ok(created) => *session = Some(created),
+                                    Err(e) => log::warn!("🎬 [GO LIVE TX] DAVE init falhou: {:?}", e),
+                                }
+                            }
                         }
 
                         // Opcode 5 Speaking
@@ -799,7 +866,8 @@ pub async fn connect_stream_sender(
                         });
                         let _ = send_text(&write, speaking).await;
 
-                        // Opcode 12 Video
+                        // Opcode 12 Video, announcing what the encoder really sends
+                        let (out_width, out_height, out_fps) = super::sender::outbound_quality();
                         let video = json!({
                             "op": 12,
                             "d": {
@@ -815,11 +883,11 @@ pub async fn connect_stream_sender(
                                         "quality": 100,
                                         "rtx_ssrc": rtx_ssrc,
                                         "max_bitrate": 8000000,
-                                        "max_framerate": 60,
+                                        "max_framerate": out_fps,
                                         "max_resolution": {
                                             "type": "fixed",
-                                            "width": 1280,
-                                            "height": 720
+                                            "width": out_width,
+                                            "height": out_height
                                         }
                                     }
                                 ]
@@ -846,10 +914,20 @@ pub async fn connect_stream_sender(
                                 mode,
                                 video_ssrc,
                                 stream_key.clone(),
+                                Arc::clone(&dave),
+                                Arc::clone(&dave_required),
                             );
                         }
                     }
                     _ => {}
+                }
+            }
+            Message::Binary(data) => {
+                if !data.is_empty() {
+                    if let Err(e) = handle_dave_binary(&data, &dave, &saved_external_sender, user_id, dave_group, &write).await {
+                        log::warn!("🎬 [GO LIVE TX] Falha no DAVE: {}", e);
+                        break;
+                    }
                 }
             }
             Message::Close(_) => break,

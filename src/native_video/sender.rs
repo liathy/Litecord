@@ -4,11 +4,13 @@
 //! encrypts them via the negotiated transport key (AES-256-GCM / XChaCha20),
 //! and sends them to Discord's stream SFU UDP endpoint.
 
+use std::borrow::Cow;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use davey::{Codec, DaveSession, MediaType};
 use log::{info, warn};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
@@ -20,6 +22,63 @@ use super::rtp::is_rtcp;
 static FRAME_TX: Mutex<Option<mpsc::Sender<Vec<u8>>>> = Mutex::new(None);
 static IS_BROADCASTING: AtomicBool = AtomicBool::new(false);
 static ACTIVE_STREAM_KEY: Mutex<Option<String>> = Mutex::new(None);
+static PREMIUM_TYPE: AtomicU8 = AtomicU8::new(0);
+static OUTBOUND_QUALITY: Mutex<(u32, u32, u32)> = Mutex::new((1280, 720, 30));
+
+/// Keyframes asked for by viewers are honoured at most this often.
+const KEYFRAME_REQUEST_GAP: Duration = Duration::from_millis(500);
+
+/// The account's Nitro plan, from the gateway READY payload.
+pub fn set_premium_type(premium_type: u8) {
+    PREMIUM_TYPE.store(premium_type, Ordering::Relaxed);
+}
+
+pub fn premium_type() -> u8 {
+    PREMIUM_TYPE.load(Ordering::Relaxed)
+}
+
+/// The Go Live quality the account's plan allows for the requested one.
+/// 2 = Nitro, 1 = Nitro Classic; Nitro Basic and free accounts stream at 720p30.
+pub fn go_live_limit(premium_type: u8, height: i32, fps: i32) -> (i32, i32) {
+    match premium_type {
+        2 => (height, fps),
+        1 => (height.min(1080), fps),
+        _ => (height.min(720), fps.min(30)),
+    }
+}
+
+/// What the encoder really produces, announced to Discord as the stream's quality.
+pub fn set_outbound_quality(height: u32, fps: u32) {
+    *OUTBOUND_QUALITY.lock().unwrap() = (height * 16 / 9, height, fps);
+}
+
+pub fn outbound_quality() -> (u32, u32, u32) {
+    *OUTBOUND_QUALITY.lock().unwrap()
+}
+
+/// RTCP feedback asking for a picture a decoder can start from: PLI or FIR.
+/// Sender and receiver reports also arrive here and must not cost a keyframe.
+fn is_keyframe_request(packet: &[u8]) -> bool {
+    is_rtcp(packet) && packet[1] == 206 && matches!(packet[0] & 0x1F, 1 | 4)
+}
+
+/// The frame to send. While the call uses DAVE, nothing leaves unencrypted: frames
+/// are dropped until the group is ready, because viewers would discard them anyway.
+fn protect_frame<'a>(
+    dave: &Mutex<Option<DaveSession>>,
+    dave_required: bool,
+    frame: &'a [u8],
+) -> Option<Cow<'a, [u8]>> {
+    if !dave_required {
+        return Some(Cow::Borrowed(frame));
+    }
+    let mut guard = dave.lock().unwrap();
+    let session = guard.as_mut()?;
+    if !session.is_ready() {
+        return None;
+    }
+    session.encrypt(MediaType::VIDEO, Codec::H264, frame).ok()
+}
 
 /// Returns true if an outbound Discord stream is actively broadcasting.
 pub fn is_broadcasting() -> bool {
@@ -58,6 +117,8 @@ pub fn start_sender(
     mode: TransportMode,
     video_ssrc: u32,
     stream_key: String,
+    dave: Arc<Mutex<Option<DaveSession>>>,
+    dave_required: Arc<AtomicBool>,
 ) {
     stop_sender("");
 
@@ -95,13 +156,26 @@ pub fn start_sender(
         crate::gateway::set_stream_paused(false);
         let mut packetizer = H264Packetizer::new(video_ssrc, 103);
         let mut frame_count = 0u64;
+        let mut waiting_for_dave = false;
 
         while let Some(frame) = rx.recv().await {
             if !IS_BROADCASTING.load(Ordering::Relaxed) {
                 break;
             }
             let pts_ms = stream_start.elapsed().as_millis() as u64;
-            let packets = packetizer.packetize(&frame, pts_ms);
+            let Some(protected) = protect_frame(&dave, dave_required.load(Ordering::Relaxed), &frame) else {
+                if !waiting_for_dave {
+                    waiting_for_dave = true;
+                    info!("🔐 [GO LIVE TX] Aguardando o grupo DAVE para enviar vídeo");
+                }
+                continue;
+            };
+            if waiting_for_dave {
+                waiting_for_dave = false;
+                info!("🔐 [GO LIVE TX] Grupo DAVE pronto: enviando vídeo cifrado");
+                crate::screen_capture::types::request_intra_keyframe();
+            }
+            let packets = packetizer.packetize(&protected, pts_ms);
 
             for (header, payload) in packets {
                 let cnt = nonce_counter.fetch_add(1, Ordering::Relaxed);
@@ -163,22 +237,57 @@ pub fn start_sender(
     // 2. Inbound RTCP Receiver Task (Handling PLI/FIR requests from Discord)
     tokio::spawn(async move {
         let mut buf = [0u8; 2048];
+        let mut last_keyframe: Option<Instant> = None;
         while IS_BROADCASTING.load(Ordering::Relaxed) {
-            match socket_recv.recv_from(&mut buf).await {
-                Ok((len, _from)) => {
-                    if is_rtcp(&buf[..len]) {
-                        // Discord sends RTCP Feedback (PLI=1 / FIR=4) when viewers connect
-                        crate::screen_capture::types::request_intra_keyframe();
-                    }
-                }
-                Err(_) => {
-                    if !IS_BROADCASTING.load(Ordering::Relaxed) {
-                        break;
-                    }
+            // Timed so the task (and its socket) ends soon after the stream stops.
+            let Ok(received) = tokio::time::timeout(Duration::from_millis(500), socket_recv.recv_from(&mut buf)).await else {
+                continue;
+            };
+            if let Ok((len, _from)) = received {
+                if is_keyframe_request(&buf[..len])
+                    && last_keyframe.map_or(true, |t| t.elapsed() >= KEYFRAME_REQUEST_GAP)
+                {
+                    last_keyframe = Some(Instant::now());
+                    crate::screen_capture::types::request_intra_keyframe();
                 }
             }
         }
     });
 
     info!("✅ [GO LIVE TX] Transmissão nativa ativa key={}", stream_key_clone);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::num::NonZeroU16;
+
+    #[test]
+    fn only_pli_and_fir_ask_for_a_keyframe() {
+        let packet = |first: u8, kind: u8| [first, kind, 0, 2, 0, 0, 0, 1];
+        assert!(is_keyframe_request(&packet(0x81, 206)));
+        assert!(is_keyframe_request(&packet(0x84, 206)));
+        assert!(!is_keyframe_request(&packet(0x80, 200)));
+        assert!(!is_keyframe_request(&packet(0x81, 201)));
+        assert!(!is_keyframe_request(&packet(0x8F, 206)));
+    }
+
+    #[test]
+    fn go_live_quality_follows_the_plan() {
+        assert_eq!(go_live_limit(0, 1440, 60), (720, 30));
+        assert_eq!(go_live_limit(3, 1080, 60), (720, 30));
+        assert_eq!(go_live_limit(1, 1440, 60), (1080, 60));
+        assert_eq!(go_live_limit(2, 1440, 60), (1440, 60));
+        assert_eq!(go_live_limit(0, 480, 15), (480, 15));
+    }
+
+    #[test]
+    fn video_never_leaves_unencrypted_while_dave_is_required() {
+        let frame = [0, 0, 0, 1, 0x65, 0x88];
+        let none = Mutex::new(None);
+        assert!(protect_frame(&none, true, &frame).is_none());
+        let pending = Mutex::new(DaveSession::new(NonZeroU16::MIN, 1, 1, None).ok());
+        assert!(protect_frame(&pending, true, &frame).is_none());
+        assert_eq!(protect_frame(&none, false, &frame).as_deref(), Some(&frame[..]));
+    }
 }

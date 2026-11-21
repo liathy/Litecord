@@ -375,6 +375,8 @@ struct StrictReadyUser<'a> {
     avatar: Option<std::borrow::Cow<'a, str>>,
     #[serde(default, borrow)]
     discriminator: Option<std::borrow::Cow<'a, str>>,
+    #[serde(default)]
+    premium_type: Option<u8>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1053,6 +1055,7 @@ impl GatewayClient {
         let username = d.user.username.as_deref().unwrap_or("User");
         let global_name = d.user.global_name.as_deref().unwrap_or(username);
         let user_avatar = d.user.avatar.as_deref().unwrap_or("");
+        crate::native_video::sender::set_premium_type(d.user.premium_type.unwrap_or(0));
         if uid_num > 0 {
             set_my_user_id(uid_num);
             set_my_username(global_name.to_string());
@@ -1176,6 +1179,7 @@ impl GatewayClient {
                     let uid = v["d"]["user"]["id"].as_str().unwrap_or("").to_string();
                     *self.user_id.lock().unwrap() = Some(uid.clone());
                     let uid_num = uid.parse::<u64>().unwrap_or(0);
+                    crate::native_video::sender::set_premium_type(v["d"]["user"]["premium_type"].as_u64().unwrap_or(0) as u8);
 
                     let username = v["d"]["user"]["username"].as_str().unwrap_or("User");
                     let global_name = v["d"]["user"]["global_name"].as_str().unwrap_or(username);

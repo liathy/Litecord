@@ -1132,12 +1132,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let res_str = ui.get_stream_selected_res().to_string();
                 let res_val: i32 = match res_str.as_str() {
+                    "1440p" => 1440,
                     "1080p" => 1080,
                     "480p" => 480,
                     _ => 720,
                 };
                 let fps_val = ui.get_stream_selected_fps();
                 let target_fps: i32 = if fps_val <= 0 { 30 } else { fps_val };
+                // Go Live goes through Discord: it is sent at what the account's plan allows.
+                let (res_val, target_fps) = if cid != 0 {
+                    native_video::sender::go_live_limit(native_video::sender::premium_type(), res_val, target_fps)
+                } else {
+                    (res_val, target_fps)
+                };
+                native_video::sender::set_outbound_quality(res_val as u32, target_fps as u32);
 
                 let source_tab = ui.get_stream_source_tab().to_string();
                 let (target_hwnd, screen_index, camera_index, include_audio) = if source_tab == "cameras" {
@@ -1158,7 +1166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 screen_capture::reset_wayland_portal_cancelled();
 
                 info!("▶️ Iniciando transmissão P2P (tab={}, screen_idx={}, {} @ {} FPS, hwnd={}, cam={:?}, audio={})...", source_tab, screen_index, res_str, target_fps, target_hwnd, camera_index, include_audio);
-                ui.set_tr_stream_quality(format!("{} {}fps", res_str, target_fps).into());
+                ui.set_tr_stream_quality(format!("{}p {}fps", res_val, target_fps).into());
 
                 let app_weak_frame = app_weak_ss.clone();
                 let pop_w_frame = pop_w_ss.clone();

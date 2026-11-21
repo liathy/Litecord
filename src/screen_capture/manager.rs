@@ -288,6 +288,7 @@ impl ScreenCaptureManager {
         let buffer = Arc::clone(&self.shared_buffer);
 
         let (target_w, target_h) = match res {
+            1440 => (2560u32, 1440u32),
             1080 => (1920u32, 1080u32),
             480 => (854u32, 480u32),
             _ => (1280u32, 720u32),
