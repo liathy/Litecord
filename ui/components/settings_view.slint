@@ -59,6 +59,7 @@ export component SettingsView inherits Rectangle {
     in property <bool> gpu_selection_available;
     in property <string> stream_capture_status;
     in property <bool> use-light-theme;
+    in property <string> theme_mode_name;
     in property <[SettingOptionItem]> video_capture_options;
     in property <[SettingOptionItem]> audio_loopback_options;
     in property <bool> enable_self_preview_notice;
@@ -96,6 +97,7 @@ export component SettingsView inherits Rectangle {
     callback reset_keybind(int);
     callback select_video_encoder(string);
     callback toggle_theme();
+    callback select_theme_mode(string);
     callback select_video_capture_backend(string);
     callback select_audio_loopback_backend(string);
     callback toggle_enable_self_preview_notice();
@@ -502,6 +504,12 @@ export component SettingsView inherits Rectangle {
                                     desc: Tr.light_theme_desc;
                                     checked: root.use-light-theme;
                                     toggled => { root.toggle_theme(); }
+                                }
+                                SettingsSwitchRow {
+                                    title: Tr.oled_theme;
+                                    desc: Tr.oled_theme_desc;
+                                    checked: root.theme_mode_name == "amoled";
+                                    toggled => { root.select_theme_mode(root.theme_mode_name == "amoled" ? "dark" : "amoled"); }
                                 }
                                 SettingsSwitchRow {
                                     title: Tr.perf_monitor;

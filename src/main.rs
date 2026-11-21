@@ -2459,9 +2459,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_weak_theme = app_weak.clone();
     app.on_toggle_theme(move || {
-        let use_light_theme = video_settings::toggle_use_light_theme();
+        video_settings::toggle_use_light_theme();
         if let Some(ui) = app_weak_theme.upgrade() {
-            ui.set_use_light_theme(use_light_theme);
+            ui.set_theme_mode_name(video_settings::get_theme_mode().into());
+        }
+    });
+
+    let app_weak_theme_mode = app_weak.clone();
+    app.on_select_theme_mode(move |mode: SharedString| {
+        video_settings::set_theme_mode(mode.to_string());
+        if let Some(ui) = app_weak_theme_mode.upgrade() {
+            ui.set_theme_mode_name(mode);
         }
     });
 
