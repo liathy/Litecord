@@ -827,8 +827,9 @@ pub async fn connect_stream_sender(
                                 "codecs": [
                                     { "name": "opus", "type": "audio", "priority": 1000, "payload_type": 120 },
                                     { "name": "H264", "type": "video", "priority": 1000,
-                                      "payload_type": 103, "rtx_payload_type": 104,
-                                      "encode": true, "decode": false }
+                                      "payload_type": super::sender::H264_PAYLOAD_TYPE,
+                                      "rtx_payload_type": super::sender::H264_RTX_PAYLOAD_TYPE,
+                                      "encode": true, "decode": true }
                                 ]
                             }
                         });
@@ -894,6 +895,7 @@ pub async fn connect_stream_sender(
                             .unwrap_or_else(|| server_id.parse::<u64>().unwrap_or(1).saturating_sub(1))
                             .max(1);
                         let dave_version = value["d"]["dave_protocol_version"].as_u64().unwrap_or(1);
+                        log::info!("🎬 [GO LIVE TX] Sessão: codec={:?} DAVE={}", value["d"]["video_codec"].as_str(), dave_version);
                         dave_required.store(dave_version > 0, Ordering::Relaxed);
                         if dave_version > 0 {
                             let mut session = dave.lock().unwrap();

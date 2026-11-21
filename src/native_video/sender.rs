@@ -25,6 +25,10 @@ static ACTIVE_STREAM_KEY: Mutex<Option<String>> = Mutex::new(None);
 static PREMIUM_TYPE: AtomicU8 = AtomicU8::new(0);
 static OUTBOUND_QUALITY: Mutex<(u32, u32, u32)> = Mutex::new((1280, 720, 30));
 
+/// Discord's payload types for H.264 (103/104 belong to H.265).
+pub const H264_PAYLOAD_TYPE: u8 = 101;
+pub const H264_RTX_PAYLOAD_TYPE: u8 = 102;
+
 /// Keyframes asked for by viewers are honoured at most this often.
 const KEYFRAME_REQUEST_GAP: Duration = Duration::from_millis(500);
 
@@ -154,7 +158,7 @@ pub fn start_sender(
             target_addr, video_ssrc, mode
         );
         crate::gateway::set_stream_paused(false);
-        let mut packetizer = H264Packetizer::new(video_ssrc, 103);
+        let mut packetizer = H264Packetizer::new(video_ssrc, H264_PAYLOAD_TYPE);
         let mut frame_count = 0u64;
         let mut waiting_for_dave = false;
 
@@ -238,12 +242,21 @@ pub fn start_sender(
     tokio::spawn(async move {
         let mut buf = [0u8; 2048];
         let mut last_keyframe: Option<Instant> = None;
+        let (mut reports, mut keyframe_requests, mut last_log) = (0u32, 0u32, Instant::now());
         while IS_BROADCASTING.load(Ordering::Relaxed) {
             // Timed so the task (and its socket) ends soon after the stream stops.
             let Ok(received) = tokio::time::timeout(Duration::from_millis(500), socket_recv.recv_from(&mut buf)).await else {
                 continue;
             };
             if let Ok((len, _from)) = received {
+                if is_rtcp(&buf[..len]) {
+                    reports += 1;
+                    keyframe_requests += u32::from(is_keyframe_request(&buf[..len]));
+                }
+                if last_log.elapsed() >= Duration::from_secs(5) {
+                    info!("📡 [GO LIVE TX] Retorno de quem assiste em 5 s: {} RTCP, {} pedidos de keyframe", reports, keyframe_requests);
+                    (reports, keyframe_requests, last_log) = (0, 0, Instant::now());
+                }
                 if is_keyframe_request(&buf[..len])
                     && last_keyframe.map_or(true, |t| t.elapsed() >= KEYFRAME_REQUEST_GAP)
                 {
