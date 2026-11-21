@@ -234,6 +234,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let main_had_area = std::cell::Cell::new(true);
         let main_weak = app_weak.clone();
         app.window().on_winit_window_event(move |window, ev| {
+            if let winit::event::WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, button, .. } = ev {
+                match button {
+                    winit::event::MouseButton::Back => crate::ui::navigation::mouse_button(&main_weak, false),
+                    winit::event::MouseButton::Forward => crate::ui::navigation::mouse_button(&main_weak, true),
+                    _ => {}
+                }
+            }
             if let Some(has) = has_area(window, ev) {
                 if has && !main_had_area.replace(has) {
                     i_slint_backend_winit::redraw_whole_window(window);
@@ -4422,6 +4429,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     crate::ui::gif_player::install(&app);
+    crate::ui::navigation::install(&app);
 
     let app_weak_pick_files = app_weak.clone();
     app.on_pick_files(move || {

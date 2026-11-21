@@ -3,6 +3,7 @@
 pub mod dm_close;
 pub mod file_upload;
 pub mod gif_player;
+pub mod navigation;
 pub mod gif_picker;
 pub mod guild_folders;
 pub mod helpers;

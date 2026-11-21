@@ -173,6 +173,10 @@ export component AppWindow inherits Window {
     callback close_dm(string /* channel_id */);
     callback toggle_category(string /* category_id */);
     callback select_guild(string /* guild_id */);
+    callback navigated();
+    callback navigate(bool /* forward */);
+    in-out property <bool> can_go_back: false;
+    in-out property <bool> can_go_forward: false;
     callback toggle_mute();
     callback toggle_deafen();
     callback leave_voice();
@@ -460,6 +464,7 @@ export component AppWindow inherits Window {
     changed active_channel_id => {
         root.scroll_chat_to_bottom();
         root.member_context_changed();
+        root.navigated();
     }
 
     public function move_suggestion_up() {
@@ -782,6 +787,54 @@ export component AppWindow inherits Window {
                     alignment: center;
                     HorizontalLayout {
                         spacing: 8px;
+
+                        // Back and forward, like a browser
+                        HorizontalLayout {
+                            spacing: 2px;
+                            alignment: start;
+
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                border-radius: 4px;
+                                background: nav_back_ta.pressed && root.can_go_back ? AppTheme.interactive-muted : nav_back_ta.has-hover && root.can_go_back ? AppTheme.interactive-hover : transparent;
+                                animate background { duration: 100ms; easing: ease-out; }
+                                Image {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: @image-url("../assets/arrow-left.svg");
+                                    colorize: root.can_go_back ? (nav_back_ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary) : AppTheme.text-subtle;
+                                    opacity: root.can_go_back ? 1 : 0.45;
+                                    animate opacity { duration: 100ms; }
+                                }
+                                nav_back_ta := TouchArea {
+                                    enabled: root.can_go_back;
+                                    mouse-cursor: root.can_go_back ? pointer : default;
+                                    clicked => { root.navigate(false); }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                border-radius: 4px;
+                                background: nav_forward_ta.pressed && root.can_go_forward ? AppTheme.interactive-muted : nav_forward_ta.has-hover && root.can_go_forward ? AppTheme.interactive-hover : transparent;
+                                animate background { duration: 100ms; easing: ease-out; }
+                                Image {
+                                    width: 16px;
+                                    height: 16px;
+                                    source: @image-url("../assets/arrow-right.svg");
+                                    colorize: root.can_go_forward ? (nav_forward_ta.has-hover ? AppTheme.text-strong : AppTheme.text-secondary) : AppTheme.text-subtle;
+                                    opacity: root.can_go_forward ? 1 : 0.45;
+                                    animate opacity { duration: 100ms; }
+                                }
+                                nav_forward_ta := TouchArea {
+                                    enabled: root.can_go_forward;
+                                    mouse-cursor: root.can_go_forward ? pointer : default;
+                                    clicked => { root.navigate(true); }
+                                }
+                            }
+                        }
 
                         VerticalLayout {
                             alignment: center;
