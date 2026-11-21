@@ -119,6 +119,8 @@ export component ChatMessagesView inherits Rectangle {
         }
     }
 
+    callback open_profile(string);
+
     public function is_at_bottom() -> bool {
         (msg_scroll.viewport-height - msg_scroll.visible-height) + scroll_y > -24px;
     }
@@ -251,6 +253,10 @@ export component ChatMessagesView inherits Rectangle {
                         width: 36px;
                         height: 36px;
                         image-fit: cover;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.open_profile(msg.author_id); }
                     }
                 }
 

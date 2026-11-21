@@ -194,6 +194,7 @@ const HANDLED_EVENTS: &[&str] = &[
     "STREAM_CREATE",
     "STREAM_SERVER_UPDATE",
     "STREAM_DELETE",
+    "GUILD_MEMBER_LIST_UPDATE",
 ];
 
 /// Events that change what the user may see in a server. They only drop the server's
@@ -682,6 +683,23 @@ impl GatewayClient {
                         }
                     }
                     GatewayCommand::SubscribeGuild { .. } => {}
+                    GatewayCommand::SubscribeMembers { guild_id, channel_id, ranges } => {
+                        let mut channels = serde_json::Map::new();
+                        if !channel_id.is_empty() {
+                            channels.insert(channel_id, serde_json::json!(ranges));
+                        }
+                        let mut subscriptions = serde_json::Map::new();
+                        subscriptions.insert(guild_id, serde_json::json!({
+                            "typing": false,
+                            "activities": false,
+                            "threads": false,
+                            "channels": channels
+                        }));
+                        let payload = serde_json::json!({ "op": 37, "d": { "subscriptions": subscriptions } });
+                        if let Some(tx) = client_cmd.ws_tx.lock().await.as_ref() {
+                            let _ = tx.send(Message::Text(payload.to_string().into())).await;
+                        }
+                    }
                 }
             }
         });
@@ -1716,6 +1734,14 @@ impl GatewayClient {
                             )
                             .await;
                         });
+                    }
+                }
+                "GUILD_MEMBER_LIST_UPDATE" => {
+                    if let Some(guild_id) = v["d"]["guild_id"].as_str() {
+                        let _ = self.event_tx.send(GatewayEvent::MemberListUpdated {
+                            guild_id: guild_id.to_string(),
+                            update: v["d"].clone(),
+                        }).await;
                     }
                 }
                 "STREAM_DELETE" => {

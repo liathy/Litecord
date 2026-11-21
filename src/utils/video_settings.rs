@@ -54,6 +54,8 @@ pub struct VideoSettings {
     /// keep a GPU context (and its driver threads) next to the game.
     #[serde(default)]
     pub use_gpu_renderer: bool,           // default false
+    #[serde(default = "default_true")]
+    pub show_member_list: bool,           // default true
     /// Width of the channel list, in logical pixels, as the user dragged it.
     #[serde(default = "default_channel_sidebar_width")]
     pub channel_sidebar_width: f32,
@@ -117,6 +119,7 @@ impl Default for VideoSettings {
             use_light_theme: false,
             theme_mode: "dark".to_string(),
             use_gpu_renderer: false,
+            show_member_list: true,
             channel_sidebar_width: default_channel_sidebar_width(),
             noise_suppression: "none".to_string(),
             echo_cancellation: false,
@@ -256,6 +259,18 @@ pub fn toggle_use_gpu_renderer() -> bool {
     let new_val = store.use_gpu_renderer;
     save_video_settings(&store);
     new_val
+}
+
+pub fn get_show_member_list() -> bool {
+    get_video_settings_store().lock().unwrap_or_else(|e| e.into_inner()).show_member_list
+}
+
+pub fn toggle_show_member_list() -> bool {
+    let mut store = get_video_settings_store().lock().unwrap_or_else(|e| e.into_inner());
+    store.show_member_list = !store.show_member_list;
+    let shown = store.show_member_list;
+    save_video_settings(&store);
+    shown
 }
 
 pub fn get_use_light_theme() -> bool {

@@ -6,6 +6,7 @@ import "../assets/fonts/Inter-Variable.ttf";
 
 import { IconButton } from "components/icon_button.slint";
 import { ChannelSidebar, ChannelItem } from "components/channel_sidebar.slint";
+import { MemberListPanel, MemberRow, ProfileCard, ProfileRole } from "components/member_list.slint";
 import { SettingsView, LanguageItem, SettingOptionItem, AudioDeviceItem } from "components/settings_view.slint";
 import { OnboardingView, OnboardingPromptItem, OnboardingOptionItem } from "components/onboarding_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
@@ -190,6 +191,25 @@ export component AppWindow inherits Window {
     callback check_for_updates();
     callback reorder_guild(int, int);
     callback toggle_guild_folder(string);
+    callback toggle_member_list();
+    callback member_context_changed();
+    callback members_scrolled(int);
+    callback open_profile(string);
+    in-out property <bool> show_member_list: true;
+    in-out property <[MemberRow]> member_rows: [];
+    out property <length> member_panel_width: root.show_member_list && root.active_guild_id != "@me" && root.width >= 860px ? 240px : 0px;
+    in-out property <bool> show_profile: false;
+    in-out property <bool> profile_loading: false;
+    in-out property <string> profile_name;
+    in-out property <string> profile_username;
+    in-out property <string> profile_pronouns;
+    in-out property <string> profile_bio;
+    in-out property <string> profile_member_since;
+    in-out property <string> profile_avatar_text;
+    in-out property <image> profile_avatar;
+    in-out property <bool> profile_has_avatar: false;
+    in-out property <color> profile_accent: AppTheme.accent;
+    in-out property <[ProfileRole]> profile_roles: [];
     callback guild_rail_changed();
     // Off when the account has folders: their order comes from Discord.
     in-out property <bool> guild_drag_enabled: true;
@@ -372,6 +392,7 @@ export component AppWindow inherits Window {
 
     changed active_channel_id => {
         root.scroll_chat_to_bottom();
+        root.member_context_changed();
     }
 
     public function move_suggestion_up() {
@@ -545,7 +566,8 @@ export component AppWindow inherits Window {
     in-out property <string> active_channel_id: "";
     in-out property <string> active_guild_name: "";
     in-out property <string> active_guild_id: "";
-    changed active_guild_id => { root.guild_rail_changed(); }
+    changed active_guild_id => { root.guild_rail_changed(); root.member_context_changed(); }
+    changed show_member_list => { root.member_context_changed(); }
     in-out property <bool> is_muted: false;
     in-out property <bool> is_deafened: false;
     in-out property <bool> is_in_voice: false;
@@ -2909,6 +2931,16 @@ export component AppWindow inherits Window {
 
                             Rectangle { horizontal-stretch: 1; }
 
+                            // Member list button — servers only
+                            if root.active_guild_id != "@me": VerticalLayout {
+                                alignment: center;
+                                IconButton {
+                                    icon: @image-url("../assets/users.svg");
+                                    icon-color: root.show_member_list ? AppTheme.text-strong : AppTheme.text-muted;
+                                    clicked => { root.toggle_member_list(); }
+                                }
+                            }
+
                             // DM Voice Call Button — visible only in Direct Messages
                             if root.active_guild_id == "@me": VerticalLayout {
                                 alignment: center;
@@ -3003,7 +3035,23 @@ export component AppWindow inherits Window {
                         border-top-left-radius: 8px;
                         clip: true;
 
+                        if root.member_panel_width > 0px: MemberListPanel {
+                            x: parent.width - root.member_panel_width;
+                            y: 0px;
+                            width: root.member_panel_width;
+                            height: parent.height;
+                            rows: root.member_rows;
+                            avatar_pool: root.avatar_pool;
+                            avatar_pool_urls: root.avatar_pool_urls;
+                            open_profile(id) => { root.open_profile(id); }
+                            scrolled(first) => { root.members_scrolled(first); }
+                        }
+
                         VerticalBox {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width - root.member_panel_width;
+                            height: parent.height;
                             padding: 0px;
                             spacing: 0px;
 
@@ -3017,6 +3065,7 @@ export component AppWindow inherits Window {
                         scroll_trigger: root.scroll_to_bottom_trigger;
                         load_older_messages => { root.load_older_messages(); }
                         open_link(url) => { root.open_link(url); }
+                        open_profile(id) => { root.open_profile(id); }
                         download_attachment(id, fn, url) => { root.download_attachment(id, fn, url); }
                         click_command(cmd) => {
                             root.click_command(cmd);
@@ -3733,6 +3782,25 @@ export component AppWindow inherits Window {
     }
 
     // Multi-Account / Switch Account & Logout Modal
+    if root.show_profile: ProfileCard {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        loading: root.profile_loading;
+        display_name: root.profile_name;
+        username: root.profile_username;
+        pronouns: root.profile_pronouns;
+        bio: root.profile_bio;
+        member_since: root.profile_member_since;
+        avatar_text: root.profile_avatar_text;
+        avatar: root.profile_avatar;
+        has_avatar: root.profile_has_avatar;
+        accent: root.profile_accent;
+        roles: root.profile_roles;
+        close => { root.show_profile = false; }
+    }
+
     if root.show_user_menu: Rectangle {
         background: AppTheme.backdrop-soft;
         width: 100%;

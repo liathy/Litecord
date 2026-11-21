@@ -136,6 +136,10 @@ pub enum GatewayEvent {
     CallEnded {
         channel_id: String,
     },
+    MemberListUpdated {
+        guild_id: String,
+        update: Value,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +154,12 @@ pub enum GatewayCommand {
     SubscribeGuild {
         guild_id: String,
         channel_ids: Vec<String>,
+    },
+    /// Rows of a channel's member list. No channel: stop receiving the server's list.
+    SubscribeMembers {
+        guild_id: String,
+        channel_id: String,
+        ranges: Vec<[usize; 2]>,
     },
 }
 

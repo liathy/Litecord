@@ -3972,6 +3972,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let app_weak_member_toggle = app_weak.clone();
+    app.on_toggle_member_list(move || {
+        let shown = video_settings::toggle_show_member_list();
+        if let Some(ui) = app_weak_member_toggle.upgrade() {
+            ui.set_show_member_list(shown);
+        }
+    });
+    let app_weak_members = app_weak.clone();
+    let cmd_tx_members = Arc::clone(&cmd_tx_store);
+    let http_members = Arc::clone(&http_client);
+    app.on_member_context_changed(move || {
+        if let Some(ui) = app_weak_members.upgrade() {
+            let http = http_members.lock().unwrap().as_ref().cloned();
+            let tx = cmd_tx_members.lock().unwrap().as_ref().cloned();
+            crate::ui::member_list::context_changed(&ui, http, tx);
+        }
+    });
+    let cmd_tx_members_scroll = Arc::clone(&cmd_tx_store);
+    app.on_members_scrolled(move |first_row| {
+        let tx = cmd_tx_members_scroll.lock().unwrap().as_ref().cloned();
+        crate::ui::member_list::scrolled(first_row.max(0) as usize, tx);
+    });
+    let app_weak_profile = app_weak.clone();
+    let http_profile = Arc::clone(&http_client);
+    app.on_open_profile(move |user_id: SharedString| {
+        if let Some(ui) = app_weak_profile.upgrade() {
+            let http = http_profile.lock().unwrap().as_ref().cloned();
+            crate::ui::member_list::open_profile(&ui, http, user_id.to_string());
+        }
+    });
+
     let app_weak_folder = app_weak.clone();
     app.on_toggle_guild_folder(move |folder_id: SharedString| {
         if let Some(ui) = app_weak_folder.upgrade() {
@@ -4816,7 +4847,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     });
                 }
+                GatewayEvent::MemberListUpdated { guild_id, update } => {
+                    crate::ui::member_list::on_update(app_weak_inner.clone(), &guild_id, &update);
+                }
                 GatewayEvent::Connected { user_tag } => {
+                    crate::ui::member_list::forget_subscription();
+                    {
+                        let app_w = app_weak_inner.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = app_w.upgrade() {
+                                ui.invoke_member_context_changed();
+                            }
+                        });
+                    }
                     // One trim once the first screens have loaded after login: the startup
                     // pages (parsing READY, first layout) are not touched again. Not repeated
                     // periodically, since pages in use would only fault back in.

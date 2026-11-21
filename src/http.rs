@@ -384,6 +384,41 @@ impl DiscordHttpClient {
         }
     }
 
+    /// A user's full profile, with their profile in this server when one is given.
+    pub async fn get_full_profile(&self, user_id: &str, guild_id: Option<&str>) -> Result<serde_json::Value, String> {
+        let mut url = format!("https://discord.com/api/v9/users/{}/profile?with_mutual_guilds=false&with_mutual_friends=false", user_id);
+        if let Some(guild_id) = guild_id {
+            url.push_str(&format!("&guild_id={}", guild_id));
+        }
+        if let Ok(resp) = self.client.get(&url).send().await {
+            if resp.status().is_success() {
+                if let Ok(profile) = resp.json::<serde_json::Value>().await {
+                    return Ok(profile);
+                }
+            }
+        }
+        self.get_user_profile(user_id).await
+    }
+
+    /// The server's roles, for member colors and role groups.
+    pub async fn get_guild_roles(&self, guild_id: &str) -> Result<Vec<crate::ui::member_list::Role>, String> {
+        let url = format!("https://discord.com/api/v10/guilds/{}", guild_id);
+        let guild = self.get_permission_data(&url).await?;
+        Ok(guild["roles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|role| {
+                Some(crate::ui::member_list::Role {
+                    id: role["id"].as_str()?.to_owned(),
+                    name: role["name"].as_str().unwrap_or("").to_owned(),
+                    color: role["color"].as_u64().unwrap_or(0) as u32,
+                    position: role["position"].as_i64().unwrap_or(0),
+                })
+            })
+            .collect())
+    }
+
     pub async fn get_guild_members(&self, guild_id: &str) -> Result<Vec<serde_json::Value>, String> {
         let url = format!("https://discord.com/api/v10/guilds/{}/members?limit=1000", guild_id);
         match self.client.get(&url).send().await {
