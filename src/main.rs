@@ -4209,6 +4209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ui.set_is_in_voice(true);
                 ui.set_is_voice_connecting(true);
                 ui.set_current_voice_channel(ch_name.clone().into());
+                ui.set_is_voice_focused(true);
                 sound_effects::play_ui_sound(sound_effects::UiSound::JoinChannel);
                 gateway::sync_voice_channel_participants(&ch_id);
                 let muted = ui.get_is_muted();
