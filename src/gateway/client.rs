@@ -1248,6 +1248,8 @@ impl GatewayClient {
                 position: 0,
             });
         }
+        // Read positions came first; the channels they belong to are known only now.
+        crate::ui::presence::schedule_refresh();
         if !dm_channels.is_empty() {
             let guild = GuildData {
                 id: "@me".to_string(),
