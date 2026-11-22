@@ -245,6 +245,9 @@ fn render(ui: &AppWindow, rail: &Rail) {
             Row::Guild { guild, folder } => {
                 let mut item = rail.guilds[guild].clone();
                 item.is_muted = crate::ui::notifications::is_guild_muted(&item.id);
+                let (unread, mentions) = crate::ui::read_states::guild_summary(&item.id);
+                item.has_unread = unread;
+                item.mention_count = mentions;
                 if let Some(index) = folder {
                     item.in_folder = true;
                     item.folder_color = folder_color(&rail.folders[index]);

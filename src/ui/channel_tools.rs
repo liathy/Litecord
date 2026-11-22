@@ -289,18 +289,54 @@ fn mark_read(ui: &AppWindow, ctx: &Context, id: &str) {
     });
 }
 
-/// Dims every muted row, whichever code path built the list.
+static REBUILD: Mutex<Option<(slint::Weak<AppWindow>, Context)>> = Mutex::new(None);
+static REBUILD_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A voice member's name or picture arrived: redraws the list once for a burst of them.
+pub fn rebuild_soon() {
+    if REBUILD_PENDING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let target = REBUILD.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some((app, ctx)) = target else {
+        REBUILD_PENDING.store(false, std::sync::atomic::Ordering::Release);
+        return;
+    };
+    let _ = slint::invoke_from_event_loop(move || {
+        slint::Timer::single_shot(std::time::Duration::from_millis(400), move || {
+            REBUILD_PENDING.store(false, std::sync::atomic::Ordering::Release);
+            if let Some(ui) = app.upgrade() {
+                let guild = ctx.guild();
+                change_list(&ui, &ctx, &guild, |_| {});
+            }
+        });
+    });
+}
+
+/// Dims muted rows and marks unread ones, whichever code path built the list.
 pub fn apply_mutes(ui: &AppWindow) {
     let guild = ui.get_active_guild_id().to_string();
+    let in_server = guild != "@me" && !guild.is_empty();
+    let http = REBUILD.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|(_, ctx)| ctx.client());
     let rows = ui.get_channels();
     for index in 0..rows.row_count() {
         let Some(mut row) = rows.row_data(index) else { continue };
         if row.is_voice_member {
+            if row.avatar_url.is_empty() || row.name.starts_with("Participante #") {
+                if let Ok(user) = row.member_user_id.parse::<u64>() {
+                    crate::ui::voice_identity::ensure(http.clone(), &guild, user);
+                }
+            }
             continue;
         }
-        let muted = crate::ui::notifications::is_channel_muted(&guild, row.id.as_str());
-        if row.is_muted != muted {
+        let id = row.id.as_str();
+        let muted = crate::ui::notifications::is_channel_muted(&guild, id);
+        let unread = !muted && !row.is_category && !row.is_voice && id != ui.get_active_channel_id().as_str() && crate::ui::read_states::has_unread(id);
+        let mentions = if in_server && !row.is_category { crate::ui::read_states::mentions(id) } else { row.unread_count };
+        if row.is_muted != muted || row.has_unread != unread || row.unread_count != mentions {
             row.is_muted = muted;
+            row.has_unread = unread;
+            row.unread_count = mentions;
             rows.set_row_data(index, row);
         }
     }
@@ -764,6 +800,7 @@ fn act(ui: &AppWindow, ctx: &Context, name: &str, id: &str, x: f32, y: f32) {
 }
 
 pub fn install(ui: &AppWindow, ctx: Context) {
+    *REBUILD.lock().unwrap_or_else(|e| e.into_inner()) = Some((ui.as_weak(), ctx.clone()));
     let app_mutes = ui.as_weak();
     ui.on_channels_changed(move || {
         if let Some(ui) = app_mutes.upgrade() {

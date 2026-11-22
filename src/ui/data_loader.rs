@@ -1183,6 +1183,7 @@ pub async fn load_messages_for_channel(
     app_weak: slint::Weak<AppWindow>,
     channel_id: &str,
 ) -> bool {
+    crate::ui::read_states::opened(http, channel_id);
     info!("Carregando mensagens do canal {}...", channel_id);
     emoji_cache::get_emoji_cache().set_active_channel(channel_id);
 
@@ -1312,6 +1313,10 @@ fn paint_channel_messages(
                 }).collect()
             };
             regroup_messages(&mut ui_msgs);
+            let ids: Vec<u64> = ui_msgs.iter().map(|m| m.id.parse().unwrap_or(0)).collect();
+            if let Some(first_new) = crate::ui::read_states::new_divider_index(&ch_id_current, &ids) {
+                ui_msgs[first_new].is_first_new = true;
+            }
             avatar_cache::get_avatar_cache().hydrate(&mut ui_msgs, &app_weak);
             crate::ui::invite_cards::hydrate(&mut ui_msgs, &app_weak);
             let model = std::rc::Rc::new(slint::VecModel::from(ui_msgs));

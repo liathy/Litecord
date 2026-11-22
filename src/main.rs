@@ -4473,6 +4473,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::ui::navigation::install(&app);
     crate::ui::chat_actions::install(&app);
     crate::ui::presence::install(&app);
+    crate::ui::read_states::install(Arc::clone(&http_client));
     crate::ui::rich_presence::install(&app, Arc::clone(&http_client), Arc::clone(&cmd_tx_store));
     let app_weak_paste = app_weak.clone();
     app.on_paste_clipboard(move || {

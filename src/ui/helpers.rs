@@ -1137,6 +1137,7 @@ pub fn build_ui_channels(
                         crate::screen_capture::is_self_streaming()
                     } else {
                         crate::screen_capture::peer_is_streaming(user_id)
+                            || crate::screen_capture::types::get_user_stream_flags(user_id).0
                     },
                     is_self_member,
                     parent_channel_id: ch.id.clone().into(),

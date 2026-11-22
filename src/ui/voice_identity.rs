@@ -62,6 +62,7 @@ pub fn ensure(http: Option<DiscordHttpClient>, guild: &str, user_id: u64) {
                     crate::gateway::register_user_name(user_id, name.to_owned());
                 }
                 crate::gateway::register_user_avatar(user_id, avatar);
+                crate::ui::channel_tools::rebuild_soon();
             }
             Err(error) => {
                 log::debug!("Membro {} do servidor {} indisponível: {}", user_id, guild, error);

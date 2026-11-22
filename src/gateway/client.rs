@@ -225,6 +225,7 @@ const HANDLED_EVENTS: &[&str] = &[
     "STREAM_SERVER_UPDATE",
     "STREAM_DELETE",
     "STREAM_UPDATE",
+    "MESSAGE_ACK",
     "GUILD_MEMBER_LIST_UPDATE",
     "USER_GUILD_SETTINGS_UPDATE",
 ];
@@ -397,6 +398,8 @@ struct StrictReadyData<'a> {
     private_channels: Vec<StrictReadyPrivateChannel<'a>>,
     #[serde(default)]
     user_guild_settings: Value,
+    #[serde(default)]
+    read_state: Value,
 }
 
 #[derive(serde::Deserialize)]
@@ -481,12 +484,16 @@ struct StrictReadyChannel<'a> {
     parent_id: Option<std::borrow::Cow<'a, str>>,
     #[serde(default)]
     position: Option<i64>,
+    #[serde(default, borrow)]
+    last_message_id: Option<std::borrow::Cow<'a, str>>,
 }
 
 #[derive(serde::Deserialize)]
 struct StrictReadyPrivateChannel<'a> {
     #[serde(deserialize_with = "deserialize_cow_id")]
     id: std::borrow::Cow<'a, str>,
+    #[serde(default, borrow)]
+    last_message_id: Option<std::borrow::Cow<'a, str>>,
     #[serde(default, borrow)]
     recipients: Vec<StrictReadyUser<'a>>,
 }
@@ -1129,6 +1136,7 @@ impl GatewayClient {
 
     async fn handle_strict_ready(&self, d: StrictReadyData<'_>) {
         crate::ui::notifications::load_settings(&d.user_guild_settings);
+        crate::ui::read_states::load(&d.read_state);
         let uid_str = d.user.id.to_string();
         *self.user_id.lock().unwrap() = Some(uid_str.clone());
         let uid_num = uid_str.parse::<u64>().unwrap_or(0);
@@ -1195,6 +1203,11 @@ impl GatewayClient {
                 let mut channels = Vec::new();
                 for ch in g.channels {
                     let ch_type = ch.ch_type;
+                    if matches!(ch_type, 0 | 2 | 5 | 13 | 15) {
+                        crate::ui::read_states::register_channel(&gid, &ch.id, ch.last_message_id.as_deref());
+                    } else if ch_type == 4 {
+                        crate::ui::read_states::register_channel(&gid, &ch.id, None);
+                    }
                     if ch_type == 0 || ch_type == 2 || ch_type == 4 || ch_type == 5 || ch_type == 13 || ch_type == 15 {
                         let ch_id = ch.id.to_string();
                         let ch_name = ch.name.as_deref().unwrap_or("canal").to_string();
@@ -1220,6 +1233,7 @@ impl GatewayClient {
         for dm in d.private_channels {
             let ch_id = dm.id.to_string();
             if ch_id.is_empty() { continue; }
+            crate::ui::read_states::register_channel("@me", &ch_id, dm.last_message_id.as_deref());
             let name = dm.recipients
                 .first()
                 .and_then(|u| u.global_name.as_deref().or_else(|| u.username.as_deref()))
@@ -1561,6 +1575,12 @@ impl GatewayClient {
                         } else {
                             None
                         };
+                        // Every voice channel's LIVE badge follows this, not only the user's own call.
+                        crate::screen_capture::types::set_user_stream_flags(
+                            event_uid,
+                            event_chan.is_some() && v["d"]["self_stream"].as_bool().unwrap_or(false),
+                            event_chan.is_some() && v["d"]["self_video"].as_bool().unwrap_or(false),
+                        );
                         let my_voice_chan = self.voice_channel_id.lock().unwrap().clone();
 
                         if let Some(ref my_cid) = my_voice_chan {
@@ -1820,6 +1840,7 @@ impl GatewayClient {
                     crate::ui::notifications::update_settings(&v["d"]);
                 }
                 "PRESENCE_UPDATE" => crate::ui::presence::on_event(&v["d"]),
+                "MESSAGE_ACK" => crate::ui::read_states::on_ack(&v["d"]),
                 "STREAM_UPDATE" => crate::ui::voice_flags::on_stream_event(&v["d"]),
                 "GUILD_MEMBER_LIST_UPDATE" => {
                     if let Some(guild_id) = v["d"]["guild_id"].as_str() {
@@ -1885,6 +1906,7 @@ impl GatewayClient {
                     let created_at = v["d"]["timestamp"].as_str().unwrap_or("").to_string();
                     let avatar_url = crate::ui::message_grouping::avatar_url_for_message(&v["d"]);
                     let is_bot = v["d"]["author"]["bot"].as_bool().unwrap_or(false);
+                    crate::ui::read_states::on_message(&v["d"], &my_uid);
                     crate::ui::notifications::on_message(&v["d"], &my_uid, &author, &content);
 
                     let _ = self.event_tx.send(GatewayEvent::MessageCreated {

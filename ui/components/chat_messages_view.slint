@@ -75,6 +75,7 @@ export struct MessageButton {
 }
 
 export struct ChatMessage {
+    is_first_new: bool,
     id: string,
     author: string,
     author_id: string,
@@ -276,6 +277,29 @@ export component ChatMessagesView inherits Rectangle {
             for msg in root.messages: VerticalLayout {
                 width: 100%;
                 spacing: 0px;
+
+                if msg.is_first_new: Rectangle {
+                    height: 18px;
+                    Rectangle {
+                        y: 9px;
+                        height: 1px;
+                        background: AppTheme.danger;
+                    }
+                    Rectangle {
+                        x: parent.width - self.width;
+                        y: 2px;
+                        width: 36px;
+                        height: 15px;
+                        border-radius: 3px;
+                        background: AppTheme.danger;
+                        Text {
+                            text: "NEW";
+                            color: AppTheme.text-on-accent;
+                            font-size: TypeScale.micro;
+                            font-weight: 800;
+                        }
+                    }
+                }
 
                 if msg.day_label != "": HorizontalLayout {
                     padding-top: 15px;

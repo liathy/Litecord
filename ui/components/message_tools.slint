@@ -590,13 +590,95 @@ export component ImageViewer inherits Rectangle {
     }
     TouchArea { clicked => { root.close(); } }
 
-    Image {
+    property <float> zoom: 1;
+    property <length> shift-x: 0px;
+    property <length> shift-y: 0px;
+    property <bool> dragged: false;
+    property <length> area-w: root.width - 80px;
+    property <length> area-h: root.height - 88px;
+    pure function limit-x(value: length, scale: float) -> length {
+        return clamp(value, root.area-w * (1 - scale), 0px);
+    }
+    pure function limit-y(value: length, scale: float) -> length {
+        return clamp(value, root.area-h * (1 - scale), 0px);
+    }
+    // Keeps the point under the mouse in place while the scale changes.
+    function zoom-at(px: length, py: length, scale: float) {
+        let next = clamp(scale, 1, 8);
+        root.shift-x = root.limit-x(px - (px - root.shift-x) * next / root.zoom, next);
+        root.shift-y = root.limit-y(py - (py - root.shift-y) * next / root.zoom, next);
+        root.zoom = next;
+    }
+
+    Rectangle {
         x: 40px;
         y: 32px;
-        width: root.width - 80px;
-        height: root.height - 88px;
-        source: root.source;
-        image-fit: contain;
+        width: root.area-w;
+        height: root.area-h;
+        clip: true;
+        Image {
+            x: root.shift-x;
+            y: root.shift-y;
+            width: root.area-w * root.zoom;
+            height: root.area-h * root.zoom;
+            source: root.source;
+            image-fit: contain;
+            animate x, y, width, height { duration: 120ms; easing: ease-out; }
+        }
+        TouchArea {
+            mouse-cursor: root.zoom > 1 ? (self.pressed ? MouseCursor.grabbing : MouseCursor.grab) : MouseCursor.pointer;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) { root.dragged = false; }
+            }
+            moved => {
+                if (self.pressed && root.zoom > 1) {
+                    let dx = self.mouse-x - self.pressed-x;
+                    let dy = self.mouse-y - self.pressed-y;
+                    if (root.dragged || dx > 3px || dx < -3px || dy > 3px || dy < -3px) {
+                        root.dragged = true;
+                        root.shift-x = root.limit-x(root.shift-x + dx, root.zoom);
+                        root.shift-y = root.limit-y(root.shift-y + dy, root.zoom);
+                    }
+                }
+            }
+            clicked => {
+                if (!root.dragged) {
+                    if (root.zoom > 1) {
+                        root.zoom = 1;
+                        root.shift-x = 0px;
+                        root.shift-y = 0px;
+                    } else {
+                        root.zoom-at(self.mouse-x, self.mouse-y, 2.5);
+                    }
+                }
+                root.dragged = false;
+            }
+            scroll-event(event) => {
+                root.zoom-at(self.mouse-x, self.mouse-y, event.delta-y > 0px ? root.zoom * 1.2 : root.zoom / 1.2);
+                return accept;
+            }
+        }
+    }
+
+    Rectangle {
+        x: root.width - 52px;
+        y: 12px;
+        width: 36px;
+        height: 36px;
+        border-radius: 18px;
+        background: viewer_close_ta.has-hover ? AppTheme.interactive-selected : AppTheme.surface-elevated;
+        accessible-role: button;
+        accessible-label: "Close";
+        Image {
+            width: 18px;
+            height: 18px;
+            source: @image-url("../../assets/x.svg");
+            colorize: AppTheme.solid-white;
+        }
+        viewer_close_ta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.close(); }
+        }
     }
 
     Text {

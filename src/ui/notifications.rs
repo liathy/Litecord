@@ -181,6 +181,10 @@ pub fn set_local_level(guild: &str, channel: &str, level: u64) {
     }
 }
 
+pub fn open_channel() -> String {
+    OPEN_CHANNEL.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 pub fn set_open_channel(channel_id: &str) {
     *OPEN_CHANNEL.lock().unwrap_or_else(|e| e.into_inner()) = channel_id.to_owned();
 }
