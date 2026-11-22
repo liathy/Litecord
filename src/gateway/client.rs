@@ -710,6 +710,15 @@ impl GatewayClient {
                         }
                     }
                     GatewayCommand::SubscribeGuild { .. } => {}
+                    GatewayCommand::UpdatePresence { activities } => {
+                        let payload = serde_json::json!({
+                            "op": 3,
+                            "d": { "since": 0, "activities": activities, "status": "online", "afk": false }
+                        });
+                        if let Some(tx) = client_cmd.ws_tx.lock().await.as_ref() {
+                            let _ = tx.send(Message::Text(payload.to_string().into())).await;
+                        }
+                    }
                     GatewayCommand::SubscribeMembers { guild_id, channel_id, ranges } => {
                         let mut channels = serde_json::Map::new();
                         if !channel_id.is_empty() {
@@ -1389,6 +1398,7 @@ impl GatewayClient {
                 "READY_SUPPLEMENTAL" => {
                     info!("📌 Evento READY_SUPPLEMENTAL recebido da Gateway! Keys: {:?}", v["d"].as_object().map(|m| m.keys().collect::<Vec<_>>()));
                     crate::ui::presence::on_ready(&v["d"]);
+                    crate::ui::rich_presence::session_started();
                     if let Some(vs_arr) = v["d"]["voice_states"].as_array() {
                         info!("📌 [READY_SUPPLEMENTAL] Encontrados {} voice_states na raiz!", vs_arr.len());
                         for vs in vs_arr {

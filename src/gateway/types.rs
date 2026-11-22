@@ -196,6 +196,10 @@ pub enum GatewayCommand {
         channel_id: String,
         ranges: Vec<[usize; 2]>,
     },
+    /// The account's own activity (games and apps through RPC).
+    UpdatePresence {
+        activities: Value,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

@@ -89,6 +89,8 @@ export component SettingsView inherits Rectangle {
     callback select_input_device(string);
     callback set_mic_volume(float);
     callback change_notification_volume(float);
+    in property <bool> rich_presence_enabled;
+    callback toggle_rich_presence();
     callback preview_notification_sound();
     callback set_vad_threshold(float);
     callback toggle_test_mic();
@@ -253,6 +255,16 @@ export component SettingsView inherits Rectangle {
                             spacing: 28px;
                             alignment: start;
                             SettingsPageTitle { title: root.tr_settings_tab_voice; }
+
+                            SettingsSection {
+                                title: "Activity Status";
+                                SettingsSwitchRow {
+                                    title: "Share my activity";
+                                    desc: "Shows the game you're playing and activity from apps that use Discord RPC. Checks running apps every 20 seconds while on.";
+                                    checked: root.rich_presence_enabled;
+                                    toggled => { root.toggle_rich_presence(); }
+                                }
+                            }
 
                             SettingsSection {
                                 title: Tr.output_device;

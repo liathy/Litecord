@@ -225,6 +225,8 @@ export component AppWindow inherits Window {
     callback set_vad_threshold(float /* threshold */);
     callback set_mic_volume(float /* volume */);
     callback change_notification_volume(float);
+    in-out property <bool> rich_presence_enabled: false;
+    callback toggle_rich_presence();
     callback preview_notification_sound();
     callback toggle_test_mic();
     callback logout();
@@ -4098,6 +4100,8 @@ export component AppWindow inherits Window {
         select_input_device(arg0) => { root.select_input_device(arg0); }
         set_mic_volume(arg0) => { root.set_mic_volume(arg0); }
         change_notification_volume(arg0) => { root.change_notification_volume(arg0); }
+        rich_presence_enabled: root.rich_presence_enabled;
+        toggle_rich_presence => { root.toggle_rich_presence(); }
         preview_notification_sound => { root.preview_notification_sound(); }
         set_vad_threshold(arg0) => { root.set_vad_threshold(arg0); }
         toggle_test_mic => { root.toggle_test_mic(); }

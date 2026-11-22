@@ -21,6 +21,7 @@ pub mod image_viewer;
 pub mod member_list;
 pub mod notifications;
 pub mod presence;
+pub mod rich_presence;
 pub mod user_menu;
 pub mod user_menu_tools;
 pub mod data_loader;

@@ -65,6 +65,9 @@ pub struct VideoSettings {
     pub echo_cancellation: bool,         // default false
     #[serde(default)]
     pub automatic_gain_control: bool,    // default false
+    /// Shows games and RPC apps as the account's activity. Off unless the user turns it on.
+    #[serde(default)]
+    pub rich_presence: bool,
     /// Where the main window was when it last moved or resized. None until it does.
     #[serde(default)]
     pub window: Option<WindowGeometry>,
@@ -124,6 +127,7 @@ impl Default for VideoSettings {
             noise_suppression: "none".to_string(),
             echo_cancellation: false,
             automatic_gain_control: false,
+            rich_presence: false,
             window: None,
         }
     }
@@ -259,6 +263,16 @@ pub fn toggle_use_gpu_renderer() -> bool {
     let new_val = store.use_gpu_renderer;
     save_video_settings(&store);
     new_val
+}
+
+pub fn get_rich_presence() -> bool {
+    get_video_settings_store().lock().unwrap_or_else(|e| e.into_inner()).rich_presence
+}
+
+pub fn set_rich_presence(enabled: bool) {
+    let mut store = get_video_settings_store().lock().unwrap_or_else(|e| e.into_inner());
+    store.rich_presence = enabled;
+    save_video_settings(&store);
 }
 
 pub fn get_show_member_list() -> bool {
