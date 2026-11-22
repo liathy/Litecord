@@ -56,6 +56,7 @@ export struct MessageAttachment {
     width: int,
     height: int,
     is_image: bool,
+    is_video: bool,
     is_gif: bool,
     is_favorite: bool,
     is_downloaded: bool,
@@ -150,6 +151,7 @@ export component ChatMessagesView inherits Rectangle {
     callback open_link(string);
     callback download_attachment(string, string, string);
     callback open_image(MessageAttachment);
+    callback open_video(string, string);
     callback click_command(string);
     callback bottom_state_changed(bool);
     in property <[MessageReaction]> quick_reactions;
@@ -1251,8 +1253,8 @@ export component ChatMessagesView inherits Rectangle {
 
                         for att in msg.attachments : Rectangle {
                             property <length> img-height: (att.width > 0 && att.height > 0) ? min(520px, max(120px, 320px * att.height / att.width)) : 200px;
-                            width: att.is_image ? 320px : 280px;
-                            height: att.is_image ? img-height : 48px;
+                            width: att.is_image || att.is_video ? 320px : 280px;
+                            height: att.is_image || att.is_video ? img-height : 48px;
                             background: AppTheme.surface-input;
                             border-radius: 8px;
                             border-width: 1px;
@@ -1371,8 +1373,35 @@ export component ChatMessagesView inherits Rectangle {
                                 }
                             }
 
+                            if att.is_video: Rectangle {
+                                background: AppTheme.surface-media;
+                                Image {
+                                    width: 100%;
+                                    height: 100%;
+                                    source: att.preview_img;
+                                    image-fit: contain;
+                                }
+                                Rectangle {
+                                    width: 52px;
+                                    height: 52px;
+                                    border-radius: 26px;
+                                    background: video_ta.has-hover ? AppTheme.accent : AppTheme.backdrop-strong;
+                                    animate background { duration: 100ms; easing: ease-out; }
+                                    Image {
+                                        width: 30px;
+                                        height: 30px;
+                                        source: @image-url("../../assets/play.svg");
+                                        colorize: AppTheme.solid-white;
+                                    }
+                                }
+                                video_ta := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => { root.open_video(att.url, att.filename); }
+                                }
+                            }
+
                             // 5. Non-image attachment card (e.g. zip, pdf)
-                            if !att.is_image : HorizontalLayout {
+                            if !att.is_image && !att.is_video : HorizontalLayout {
                                 padding-left: 10px;
                                 padding-right: 10px;
                                 spacing: 10px;

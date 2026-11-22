@@ -1661,10 +1661,10 @@ pub fn format_discord_message_parts(m: &Value) -> (String, Vec<String>, Vec<Mess
                         url: url.clone(),
                     });
                 }
+            } else if content_type.starts_with("video/") {
+                // Shown by its own card in the chat.
             } else if !is_image {
-                let label = if content_type.starts_with("video/") {
-                    "Video"
-                } else if content_type.starts_with("audio/") {
+                let label = if content_type.starts_with("audio/") {
                     "Audio"
                 } else {
                     crate::utils::i18n_ui::ui_text().attachment_label

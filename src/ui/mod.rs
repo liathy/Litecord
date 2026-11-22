@@ -25,6 +25,7 @@ pub mod read_states;
 pub mod server_tools;
 pub mod rich_presence;
 pub mod user_menu;
+pub mod video_player;
 pub mod user_menu_tools;
 pub mod data_loader;
 pub mod invite_cards;

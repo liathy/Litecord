@@ -13,6 +13,7 @@ import { CallChrome, StreamVolumeControl } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
 import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow, ConnectionDetails } from "components/channel_tools.slint";
 import { FriendsPage, FriendRow } from "components/friends_view.slint";
+import { VideoPlayer } from "components/video_player.slint";
 import { ServerHoverUser, ServerMenu, NickDialog, ServerHoverCard, AudioDeviceMenu } from "components/server_tools.slint";
 import { GifPlayback } from "components/chat_messages_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
@@ -773,6 +774,26 @@ export component AppWindow inherits Window {
         }
         root.stream_zoom_changed();
     }
+
+    // Video player
+    callback open_video(string, string);
+    callback video_action(string, float);
+    callback video_area_changed(length, length, length, length);
+    callback video_refit();
+    in-out property <bool> video_open: false;
+    in-out property <bool> video_fullscreen: false;
+    in-out property <bool> video_playing: false;
+    in-out property <string> video_url: "";
+    in-out property <string> video_title: "";
+    in-out property <string> video_time: "";
+    in-out property <string> video_status: "";
+    in-out property <float> video_position: 0;
+    in-out property <float> video_volume: 1;
+    in-out property <float> video_saved_volume: 1;
+    in-out property <length> video_area_x;
+    in-out property <length> video_area_y;
+    in-out property <length> video_area_w;
+    in-out property <length> video_area_h;
 
     // Friends page
     callback friends_action(string, string);
@@ -3501,6 +3522,7 @@ export component AppWindow inherits Window {
                         message_action(name, id, extra, x, y) => { root.message_action(name, id, extra, x, y); }
                         open_user_menu(id, x, y) => { root.open_user_menu(id, x, y); }
                         download_attachment(id, fn, url) => { root.download_attachment(id, fn, url); }
+                        open_video(url, title) => { root.open_video(url, title); }
                         open_image(att) => {
                             root.viewer_img = att.full_img;
                             root.viewer_id = att.id;
@@ -5253,6 +5275,23 @@ export component AppWindow inherits Window {
         can_invite: root.can_create_invite;
         close => { root.channel_menu_open = false; }
         action(name, id) => { root.channel_action(name, id, 0px, 0px); }
+    }
+
+    if root.video_open: VideoPlayer {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        z: 61;
+        title: root.video_title;
+        time: root.video_time;
+        status: root.video_status;
+        playing: root.video_playing;
+        fullscreen: root.video_fullscreen;
+        position: root.video_position;
+        volume: root.video_volume;
+        action(name, value) => { root.video_action(name, value); }
+        area_changed(x, y, w, h) => { root.video_area_changed(x, y, w, h); }
     }
 
     if root.viewer_open: ImageViewer {

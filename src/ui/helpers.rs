@@ -909,6 +909,12 @@ pub fn map_message_lines(lines: &[gateway::MessageLineData], channel_id: &str, a
     slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(slint_lines)))
 }
 
+/// Discord's media proxy returns a video's first frame as a picture.
+fn video_poster_url(proxy: &str) -> String {
+    let separator = if proxy.contains('?') { '&' } else { '?' };
+    format!("{proxy}{separator}format=webp&width=480")
+}
+
 pub fn map_message_attachments(
     attachments: &[gateway::MessageAttachmentData],
     app_weak: &slint::Weak<AppWindow>,
@@ -926,11 +932,13 @@ pub fn map_message_attachments(
             (false, slint::Image::default())
         };
 
-        let preview_img = if a.is_image && !is_downloaded {
+        let is_video = a.content_type.starts_with("video/");
+        let preview_img = if (a.is_image && !is_downloaded) || is_video {
             if let Some(p) = att_cache.get_preview(&a.id) {
                 p
             } else {
-                att_cache.fetch_preview_async(&a.id, &a.proxy_url, app_weak.clone());
+                let source = if is_video { video_poster_url(&a.proxy_url) } else { a.proxy_url.clone() };
+                att_cache.fetch_preview_async(&a.id, &source, app_weak.clone());
                 slint::Image::default()
             }
         } else {
@@ -957,6 +965,7 @@ pub fn map_message_attachments(
             width,
             height,
             is_image: a.is_image,
+            is_video,
             is_gif: a.content_type == "image/gif",
             is_favorite: a.content_type == "image/gif" && crate::ui::chat_actions::is_favorite(&a.url),
             is_downloaded,
