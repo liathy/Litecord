@@ -49,6 +49,11 @@ mod native {
 
     struct Player {
         window: windows_sys::Win32::Foundation::HWND,
+        parent: windows_sys::Win32::Foundation::HWND,
+        /// The video area inside the app, physical pixels.
+        area: (i32, i32, i32, i32),
+        /// Where the picture window is on the screen now.
+        placed: (i32, i32, i32, i32),
         media: IMFPMediaPlayer,
         duration: i64,
         opened: Instant,
@@ -72,9 +77,30 @@ mod native {
         i64::try_from(value).ok().or_else(|| u64::try_from(value).ok().map(|v| v as i64)).unwrap_or(0)
     }
 
+    /// Keeps the picture over its area, also while the app window is being moved.
+    fn follow(player: &mut Player) {
+        use windows_sys::Win32::Foundation::POINT;
+        use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
+        use windows_sys::Win32::UI::WindowsAndMessaging::MoveWindow;
+        let (x, y, w, h) = player.area;
+        let mut corner = POINT { x, y };
+        unsafe {
+            if ClientToScreen(player.parent, &mut corner) == 0 {
+                return;
+            }
+            let wanted = (corner.x, corner.y, w, h);
+            if wanted != player.placed {
+                player.placed = wanted;
+                MoveWindow(player.window, corner.x, corner.y, w.max(1), h.max(1), 1);
+                let _ = player.media.UpdateVideo();
+            }
+        }
+    }
+
     fn tick(ui: &AppWindow) {
         PLAYER.with_borrow_mut(|slot| {
             let Some(player) = slot.as_mut() else { return };
+            follow(player);
             let time = GUID::zeroed();
             unsafe {
                 if let Ok(value) = player.media.GetDuration(&time) {
@@ -100,10 +126,11 @@ mod native {
             let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
         });
         let Some(parent) = main_window(ui) else { return false };
-        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP, WS_VISIBLE};
         let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
         let window = unsafe {
-            CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, 0, 0, 1, 1, parent, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
+            // Owned, not a child: the app paints its whole client area, which would cover a child.
+            CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW, class.as_ptr(), std::ptr::null(), WS_POPUP | WS_VISIBLE, 0, 0, 1, 1, parent, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
         };
         if window.is_null() {
             return false;
@@ -122,7 +149,7 @@ mod native {
                 tick(&ui);
             }
         });
-        PLAYER.with_borrow_mut(|slot| *slot = Some(Player { window, media, duration: 0, opened: Instant::now(), _timer: timer }));
+        PLAYER.with_borrow_mut(|slot| *slot = Some(Player { window, parent, area: (0, 0, 1, 1), placed: (0, 0, 0, 0), media, duration: 0, opened: Instant::now(), _timer: timer }));
         true
     }
 
@@ -136,13 +163,10 @@ mod native {
 
     pub fn place(ui: &AppWindow, x: f32, y: f32, w: f32, h: f32) {
         let k = ui.window().scale_factor();
-        PLAYER.with_borrow(|slot| {
-            let Some(player) = slot.as_ref() else { return };
-            use windows_sys::Win32::UI::WindowsAndMessaging::{MoveWindow};
-            unsafe {
-                MoveWindow(player.window, (x * k).round() as i32, (y * k).round() as i32, (w * k).round() as i32, (h * k).round() as i32, 1);
-                let _ = player.media.UpdateVideo();
-            }
+        PLAYER.with_borrow_mut(|slot| {
+            let Some(player) = slot.as_mut() else { return };
+            player.area = ((x * k).round() as i32, (y * k).round() as i32, (w * k).round() as i32, (h * k).round() as i32);
+            follow(player);
         });
     }
 

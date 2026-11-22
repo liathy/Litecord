@@ -336,6 +336,22 @@ fn execute(ui: &AppWindow, cmd: &Value) -> Result<Value, String> {
             let _ = ui.window().with_winit_window(|w| w.set_minimized(true));
             Ok(json!({ "ok": true }))
         }
+        "open_video" => {
+            let url = cmd["url"].as_str().ok_or("missing \"url\"")?;
+            ui.invoke_open_video(url.into(), "Test video".into());
+            Ok(json!({ "ok": true }))
+        }
+        "video_state" => Ok(json!({
+            "open": ui.get_video_open(),
+            "playing": ui.get_video_playing(),
+            "position": ui.get_video_position(),
+            "time": ui.get_video_time().as_str(),
+            "status": ui.get_video_status().as_str(),
+        })),
+        "close_video" => {
+            ui.invoke_video_action("close".into(), 0.0);
+            Ok(json!({ "ok": true }))
+        }
         "popout_stream" => {
             let uid = cmd["user_id"].as_str().ok_or("missing \"user_id\"")?;
             ui.invoke_popout_stream_window(uid.into(), "".into());
