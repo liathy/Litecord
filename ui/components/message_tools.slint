@@ -206,38 +206,109 @@ component PopupRow inherits Rectangle {
     }
 }
 
+component MessageMenuRow inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> danger;
+    callback clicked();
+    height: 32px;
+    border-radius: 4px;
+    background: row_ta.has-hover ? (root.danger ? AppTheme.danger-action : AppTheme.interactive-selected) : transparent;
+    animate background { duration: 80ms; easing: ease-out; }
+    Image {
+        x: 8px;
+        y: 7px;
+        width: 18px;
+        height: 18px;
+        source: root.icon;
+        colorize: row_ta.has-hover && root.danger ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-secondary);
+        image-fit: contain;
+    }
+    Text {
+        x: 36px;
+        width: parent.width - 44px;
+        height: parent.height;
+        text: root.text;
+        color: row_ta.has-hover && root.danger ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-primary);
+        font-size: TypeScale.small;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    row_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component MessageMenuLine inherits Rectangle {
+    height: 9px;
+    Rectangle { y: 4px; height: 1px; background: AppTheme.separator; }
+}
+
 export component MessageMenu inherits Rectangle {
     in property <length> menu-x;
     in property <length> menu-y;
     in property <bool> is_own;
     in property <bool> is_pinned;
     in property <bool> can_manage;
+    in property <bool> in_server;
+    in property <[MessageReaction]> quick;
     callback close();
     callback action(string);
+    callback react(string);
 
     TouchArea { clicked => { root.close(); } }
 
     Rectangle {
         x: Math.max(8px, Math.min(root.menu-x - self.width + 30px, root.width - self.width - 8px));
         y: Math.max(8px, Math.min(root.menu-y + 4px, root.height - self.height - 8px));
-        width: 210px;
-        height: list.preferred-height;
+        width: 230px;
+        height: Math.min(list.preferred-height, root.height - 16px);
         border-radius: 8px;
         background: AppTheme.surface-elevated;
         border-width: 1px;
         border-color: AppTheme.border-subtle;
         drop-shadow-blur: 12px;
         drop-shadow-color: AppTheme.surface-scrim;
+        clip: true;
         TouchArea { }
         list := VerticalLayout {
             padding: 6px;
             spacing: 1px;
-            PopupRow { text: "Copy Text"; clicked => { root.action("copy_text"); } }
-            PopupRow { text: "Copy Message Link"; clicked => { root.action("copy_link"); } }
-            PopupRow { text: "Copy Message ID"; clicked => { root.action("copy_id"); } }
-            if root.can_manage && !root.is_pinned: PopupRow { text: "Pin Message"; clicked => { root.action("pin"); } }
-            if root.can_manage && root.is_pinned: PopupRow { text: "Unpin Message"; danger: true; clicked => { root.action("ask_unpin"); } }
-            if root.is_own || root.can_manage: PopupRow { text: "Delete Message"; danger: true; clicked => { root.action("ask_delete"); } }
+            alignment: start;
+            HorizontalLayout {
+                height: 36px;
+                spacing: 4px;
+                alignment: start;
+                for emoji in root.quick: Rectangle {
+                    width: 40px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: AppTheme.surface-input;
+                    EmojiButton {
+                        emoji: emoji;
+                        clicked => { root.react(emoji.key); }
+                    }
+                }
+            }
+            MessageMenuRow { text: "Add Reaction"; icon: @image-url("../../assets/emoji.svg"); clicked => { root.action("add_reaction"); } }
+            MessageMenuLine { }
+            if root.is_own: MessageMenuRow { text: "Edit Message"; icon: @image-url("../../assets/edit.svg"); clicked => { root.action("edit"); } }
+            MessageMenuRow { text: "Reply"; icon: @image-url("../../assets/reply.svg"); clicked => { root.action("reply"); } }
+            MessageMenuRow { text: "Forward"; icon: @image-url("../../assets/forward.svg"); clicked => { root.action("forward"); } }
+            if root.in_server: MessageMenuRow { text: "Create Thread"; icon: @image-url("../../assets/threads.svg"); clicked => { root.action("create_thread"); } }
+            MessageMenuLine { }
+            if root.can_manage && !root.is_pinned: MessageMenuRow { text: "Pin Message"; icon: @image-url("../../assets/pin.svg"); clicked => { root.action("pin"); } }
+            if root.can_manage && root.is_pinned: MessageMenuRow { text: "Unpin Message"; icon: @image-url("../../assets/pin.svg"); clicked => { root.action("ask_unpin"); } }
+            MessageMenuRow { text: "Mark Unread"; icon: @image-url("../../assets/bell.svg"); clicked => { root.action("mark_unread"); } }
+            MessageMenuRow { text: "Copy Text"; icon: @image-url("../../assets/copy.svg"); clicked => { root.action("copy_text"); } }
+            MessageMenuRow { text: "Copy Message Link"; icon: @image-url("../../assets/link.svg"); clicked => { root.action("copy_link"); } }
+            MessageMenuLine { }
+            if root.is_own || root.can_manage: MessageMenuRow { text: "Delete Message"; icon: @image-url("../../assets/trash.svg"); danger: true; clicked => { root.action("ask_delete"); } }
+            if !root.is_own: MessageMenuRow { text: "Report Message"; icon: @image-url("../../assets/flag.svg"); danger: true; clicked => { root.action("report"); } }
+            MessageMenuLine { }
+            MessageMenuRow { text: "Copy Message ID"; icon: @image-url("../../assets/info.svg"); clicked => { root.action("copy_id"); } }
         }
     }
 }

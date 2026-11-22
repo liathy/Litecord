@@ -4473,6 +4473,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::ui::navigation::install(&app);
     crate::ui::chat_actions::install(&app);
     crate::ui::presence::install(&app);
+    let app_weak_paste = app_weak.clone();
+    app.on_paste_clipboard(move || {
+        app_weak_paste.upgrade().is_some_and(|ui| crate::ui::clipboard_paste::paste(&ui))
+    });
     crate::ui::voice_stats::install(&app);
     crate::ui::friends::install(&app, Arc::clone(&http_client), Arc::clone(&active_channel_id));
     crate::ui::image_viewer::install(&app);

@@ -76,6 +76,12 @@ pub fn pick(ui: &AppWindow) {
     });
 }
 
+/// Attaches files that came from somewhere else, such as the clipboard.
+pub fn add_paths(ui: &AppWindow, paths: Vec<PathBuf>) {
+    ui.set_file_upload_error("".into());
+    set_pending(ui, merge(pending(ui), paths));
+}
+
 pub fn remove(ui: &AppWindow, index: usize) {
     let mut files = pending(ui);
     if index < files.len() {

@@ -13,6 +13,7 @@ use crate::utils::emoji_cache;
 use crate::{AppWindow, ForwardTarget, MentionItem, MessageReaction};
 
 const MAX_MESSAGES: usize = 4000;
+const MAX_THREAD_NAME: usize = 40;
 const QUICK_REACTIONS: [&str; 3] = ["😭", "❤️", "👍"];
 const MAX_MENTIONS: usize = 8;
 const MAX_FORWARD_TARGETS: usize = 80;
@@ -387,6 +388,20 @@ pub fn action(ui: &AppWindow, http: Option<DiscordHttpClient>, name: &str, messa
             ui.set_message_menu_can_manage(can_manage(&guild));
             ui.set_message_menu_id(message.into());
         }
+        "create_thread" => {
+            if let Some(http) = http {
+                let body = json!({ "name": thread_name(&raw.0), "auto_archive_duration": 1440 });
+                call(http, ui.as_weak(), Method::POST, format!("/channels/{channel}/messages/{message}/threads"), Some(body));
+            }
+        }
+        "mark_unread" => {
+            // Read up to just before this message.
+            if let (Some(http), Some(before)) = (http, message.parse::<u64>().ok().and_then(|id| id.checked_sub(1))) {
+                let body = json!({ "manual": true, "mention_count": 0 });
+                call(http, ui.as_weak(), Method::POST, format!("/channels/{channel}/messages/{before}/ack"), Some(body));
+            }
+        }
+        "report" => ui.invoke_open_link("https://dis.gd/report".into()),
         "copy_text" => {
             ui.set_message_menu_id("".into());
             copy(ui, raw.0);
@@ -436,6 +451,13 @@ pub fn action(ui: &AppWindow, http: Option<DiscordHttpClient>, name: &str, messa
         }
         _ => {}
     }
+}
+
+/// A thread is named after the start of its message, as Discord suggests.
+fn thread_name(text: &str) -> String {
+    let clean = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name: String = clean.chars().take(MAX_THREAD_NAME).collect();
+    if name.is_empty() { "New Thread".to_owned() } else { name }
 }
 
 /// Sends an edit or reply. False when the text is an ordinary message.
@@ -546,6 +568,13 @@ pub fn pick_mention(ui: &AppWindow, index: i32) {
 #[cfg(test)]
 mod emoji_query_tests {
     use super::emoji_query;
+
+    #[test]
+    fn threads_are_named_after_their_message() {
+        assert_eq!(super::thread_name("  oi\n tudo  bem "), "oi tudo bem");
+        assert_eq!(super::thread_name(""), "New Thread");
+        assert_eq!(super::thread_name(&"a".repeat(90)).len(), super::MAX_THREAD_NAME);
+    }
 
     #[test]
     fn finds_the_name_being_typed() {

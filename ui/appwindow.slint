@@ -713,6 +713,14 @@ export component AppWindow inherits Window {
     in-out property <string> voice_stats_loss: "";
     in-out property <int> voice_stats_quality: 0;
 
+    callback paste_clipboard() -> bool;
+    callback voice_stats_tick();
+    Timer {
+        interval: 3s;
+        running: root.is_in_voice;
+        triggered => { root.voice_stats_tick(); }
+    }
+
     // Friends page
     callback friends_action(string, string);
     in-out property <bool> friends_open: false;
@@ -3848,6 +3856,11 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center;
                                     single-line: true;
                                     key-pressed(event) => {
+                                        if (event.modifiers.control && (event.text == "v" || event.text == "V")) {
+                                            if (root.paste_clipboard()) {
+                                                return accept;
+                                            }
+                                        }
                                         if (root.show_mentions && root.mention_items.length > 0) {
                                             if (event.text == Key.UpArrow) {
                                                 root.mention_index = root.mention_index > 0 ? root.mention_index - 1 : root.mention_items.length - 1;
@@ -4965,8 +4978,19 @@ export component AppWindow inherits Window {
         is_own: root.message_menu_own;
         is_pinned: root.message_menu_pinned;
         can_manage: root.message_menu_can_manage;
+        in_server: root.active_guild_id != "@me";
+        quick: root.quick_reactions;
         close => { root.message_menu_id = ""; }
-        action(name) => { root.message_action(name, root.message_menu_id, "", 0px, 0px); }
+        action(name) => {
+            let id = root.message_menu_id;
+            root.message_menu_id = "";
+            root.message_action(name, id, "", root.message_menu_x, root.message_menu_y);
+        }
+        react(key) => {
+            let id = root.message_menu_id;
+            root.message_menu_id = "";
+            root.message_action("react", id, key, 0px, 0px);
+        }
     }
 
     if root.forward_message_id != "": ForwardPicker {

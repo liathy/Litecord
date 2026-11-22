@@ -102,6 +102,12 @@ fn close(ui: &AppWindow) {
 }
 
 pub fn install(ui: &AppWindow) {
+    let app_tick = ui.as_weak();
+    ui.on_voice_stats_tick(move || {
+        if let Some(ui) = app_tick.upgrade() {
+            ui.set_voice_stats_quality(quality(AVERAGE_PING_MS.load(Ordering::Relaxed)));
+        }
+    });
     let app = ui.as_weak();
     ui.on_voice_stats_toggle(move || {
         let Some(ui) = app.upgrade() else { return };
