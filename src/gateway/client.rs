@@ -78,8 +78,34 @@ pub fn unwatch_stream(stream_key: &str) {
     crate::native_video::stream::stop_stream_viewer(stream_key);
 }
 
+/// Streams this client asked to leave, until Discord confirms with STREAM_DELETE.
+static SELF_STOPPED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn take_from(list: &mut Vec<String>, key: &str) -> bool {
+    match list.iter().position(|known| known == key) {
+        Some(index) => {
+            list.remove(index);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Stop Watching: leaves the stream on Discord too. Without this Discord still counts
+/// the user as a viewer and answers the next Watch with no connection details.
+pub fn stop_watching_stream(stream_key: &str) {
+    SELF_STOPPED.lock().unwrap_or_else(|e| e.into_inner()).push(stream_key.to_string());
+    unwatch_stream(stream_key);
+    if let Ok(guard) = STREAM_CONTROL_TX.lock() {
+        if let Some(tx) = guard.as_ref() {
+            let _ = tx.send(StreamControlMsg::Delete { stream_key: stream_key.to_string() });
+        }
+    }
+}
+
 /// Drops every Go Live subscription (left the voice call).
 pub fn clear_watched_streams() {
+    SELF_STOPPED.lock().unwrap_or_else(|e| e.into_inner()).clear();
     if let Ok(mut set) = watched_streams().lock() {
         set.clear();
     }
@@ -1812,6 +1838,12 @@ impl GatewayClient {
                         .unwrap_or(0);
                     info!("🎬 [STREAM_DELETE] encerrando stream key={} (reason={:?})",
                         stream_key, v["d"]["reason"].as_str());
+                    // Our own Stop Watching: the person is still live, and a new Watch
+                    // may already be on its way, so its state must stay.
+                    if take_from(&mut SELF_STOPPED.lock().unwrap_or_else(|e| e.into_inner()), &stream_key) {
+                        self.stream_servers.lock().unwrap().remove(&stream_key);
+                        return;
+                    }
                     let user_id = self
                         .user_id
                         .lock()
@@ -2105,6 +2137,14 @@ mod guild_name_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stopped_stream_is_confirmed_once() {
+        let mut list = vec!["a".to_string(), "b".to_string(), "a".to_string()];
+        assert!(take_from(&mut list, "a"));
+        assert_eq!(list, ["b", "a"]);
+        assert!(!take_from(&mut list, "c"));
+    }
 
     #[test]
     fn only_events_the_app_uses_are_parsed_whole_but_every_sequence_counts() {

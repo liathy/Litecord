@@ -1539,7 +1539,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format!("call:{}:{}", cid, uid_num)
             };
             info!("🎬 [GATEWAY] Cancelando visualização de stream: {}", stream_key);
-            gateway::unwatch_stream(&stream_key);
+            gateway::stop_watching_stream(&stream_key);
         }
 
         if let Some(ui) = app_weak_hide.upgrade() {
