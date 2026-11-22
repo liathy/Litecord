@@ -66,6 +66,24 @@ component VoicePanelButton inherits Rectangle {
     }
 }
 
+component AudioArrow inherits Rectangle {
+    callback clicked();
+    width: 14px;
+    height: 28px;
+    border-radius: 3px;
+    background: arrow_ta.has-hover ? AppTheme.interactive-hover : transparent;
+    Image {
+        width: 12px;
+        height: 12px;
+        source: @image-url("../../assets/chevron-down.svg");
+        colorize: arrow_ta.has-hover ? AppTheme.text-strong : AppTheme.text-muted;
+    }
+    arrow_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 component RowAction inherits Rectangle {
     in property <image> icon;
     callback clicked();
@@ -128,6 +146,7 @@ export component ChannelSidebar inherits Rectangle {
     in property <bool> can_move_members;
     property <bool> ignore_next_click: false;
     callback toggle_voice_stats();
+    callback open_audio_menu(string);
     in property <int> voice_quality;
     in property <bool> in_dms;
     in property <bool> friends_active;
@@ -904,12 +923,14 @@ export component ChannelSidebar inherits Rectangle {
                             icon-color: root.is_muted ? AppTheme.danger : AppTheme.text-primary;
                             clicked => { root.toggle_mute(); }
                         }
+                        AudioArrow { clicked => { root.open_audio_menu("input"); } }
 
                         IconButton {
                             icon: root.is_deafened ? @image-url("../../assets/headphones-mute.svg") : @image-url("../../assets/headphones.svg");
                             icon-color: root.is_deafened ? AppTheme.danger : AppTheme.text-primary;
                             clicked => { root.toggle_deafen(); }
                         }
+                        AudioArrow { clicked => { root.open_audio_menu("output"); } }
 
                         IconButton {
                             icon: @image-url("../../assets/settings.svg");

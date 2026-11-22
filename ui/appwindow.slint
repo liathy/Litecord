@@ -13,6 +13,7 @@ import { CallChrome, StreamVolumeControl } from "components/call_chrome.slint";
 import { MessageReaction, MentionItem, ForwardTarget, MessageMenu, ConfirmDialog, ForwardPicker, MentionPopup, ExpressionTabs, StreamPreviewCard, ImageViewer } from "components/message_tools.slint";
 import { ChannelInfoRow, ChannelMenu, CreateChannelDialog, InviteDialog, ChannelSettingsScreen, ChannelPanel, PanelRow, ConnectionDetails } from "components/channel_tools.slint";
 import { FriendsPage, FriendRow } from "components/friends_view.slint";
+import { ServerHoverUser, ServerMenu, NickDialog, ServerHoverCard, AudioDeviceMenu } from "components/server_tools.slint";
 import { GifPlayback } from "components/chat_messages_view.slint";
 import { ChatMessagesView, LinkItem, MessageBlock, MessageLine, MessageAttachment, MessageButton, ChatMessage } from "components/chat_messages_view.slint";
 export { GifPlayback } from "components/chat_messages_view.slint";
@@ -725,6 +726,54 @@ export component AppWindow inherits Window {
         triggered => { root.voice_stats_tick(); }
     }
 
+    // Server menu and hover card
+    callback open_server_menu(string, length, length);
+    callback server_menu_action(string);
+    callback server_hovered(string, string, length, bool);
+    in-out property <bool> server_menu_open: false;
+    in-out property <string> server_menu_id: "";
+    in-out property <length> server_menu_x;
+    in-out property <length> server_menu_y;
+    in-out property <bool> server_menu_levels: false;
+    in-out property <bool> server_menu_muted: false;
+    in-out property <int> server_menu_level: 1;
+    in-out property <bool> server_menu_hide_muted: false;
+    in-out property <bool> server_menu_allow_dms: true;
+    in-out property <bool> server_menu_owner: false;
+    in-out property <bool> server_menu_can_manage: false;
+    in-out property <bool> server_menu_can_invite: false;
+    in-out property <bool> server_nick_open: false;
+    in-out property <string> server_nick_guild: "";
+    in-out property <string> server_nick_text: "";
+    in-out property <string> server_nick_error: "";
+    in-out property <string> server_hover_id: "";
+    in-out property <string> server_hover_name: "";
+    in-out property <bool> server_hover_muted: false;
+    in-out property <length> server_hover_y;
+    in-out property <[ServerHoverUser]> server_hover_voice: [];
+    in-out property <int> server_hover_voice_extra: 0;
+    in-out property <[ServerHoverUser]> server_hover_streams: [];
+    in-out property <int> server_hover_streams_extra: 0;
+
+    // Mic and headset dropdowns
+    callback refresh_audio_devices();
+    in-out property <string> audio_menu: "";
+
+    // Stream zoom: scale and which part of the picture stays in view (0 to 1)
+    callback stream_zoom_changed();
+    in-out property <float> stream_zoom: 1;
+    in-out property <float> stream_zoom_x: 0.5;
+    in-out property <float> stream_zoom_y: 0.5;
+    in-out property <bool> stream_zoom_dragged: false;
+    public function set_stream_zoom(scale: float) {
+        root.stream_zoom = clamp(scale, 1, 5);
+        if (root.stream_zoom <= 1) {
+            root.stream_zoom_x = 0.5;
+            root.stream_zoom_y = 0.5;
+        }
+        root.stream_zoom_changed();
+    }
+
     // Friends page
     callback friends_action(string, string);
     in-out property <bool> friends_open: false;
@@ -987,7 +1036,10 @@ export component AppWindow inherits Window {
     in-out property <int> active_stream_viewers: 0;
     in-out property <bool> fullscreen_volume_active: false;
     property <string> volume_watch: root.active_stream_user_id;
-    changed volume_watch => { root.refresh_stream_volume(); }
+    changed volume_watch => {
+        root.refresh_stream_volume();
+        root.set_stream_zoom(1);
+    }
     callback toggle_popout_intangible();
 
     in-out property <[GuildItem]> guilds: [];
@@ -1807,7 +1859,15 @@ export component AppWindow inherits Window {
 
                                             guild_ta := TouchArea {
                                                 mouse-cursor: pointer;
+                                                changed has-hover => {
+                                                    if (!guild.is_folder) {
+                                                        root.server_hovered(guild.id, guild.name, self.absolute-position.y, self.has-hover);
+                                                    }
+                                                }
                                                 pointer-event(event) => {
+                                                    if (!guild.is_folder && event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                                        root.open_server_menu(guild.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                                                    }
                                                     if (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel) {
                                                         if (root.dragging_guild_idx >= 0 && root.drop_target_guild_idx >= 0 && root.dragging_guild_idx != root.drop_target_guild_idx) {
                                                             root.reorder_guild(root.dragging_guild_idx, root.drop_target_guild_idx);
@@ -1904,6 +1964,10 @@ export component AppWindow inherits Window {
                 friends_pending: root.friends_pending_count;
                 open_friends => { root.friends_action("open", ""); }
                 toggle_voice_stats => { root.voice_stats_toggle(); }
+                open_audio_menu(kind) => {
+                    root.refresh_audio_devices();
+                    root.audio_menu = kind;
+                }
                 voice_quality: root.voice_stats_quality;
                 close_dm(id) => { root.close_dm(id); }
                 toggle_category(id) => { root.toggle_category(id); }
@@ -2147,9 +2211,12 @@ export component AppWindow inherits Window {
 
                                         // Video Canvas (Independent dual buffers: active_stream_frame for self transmitter, remote_stream_frame for remote peer)
                                         if !(root.gpu_video_main && remote_view): Image {
+                                            property <float> scale: is_this_stream_focused ? root.stream_zoom : 1;
+                                            x: -parent.width * (scale - 1) * (is_this_stream_focused ? root.stream_zoom_x : 0.5);
+                                            y: -parent.height * (scale - 1) * (is_this_stream_focused ? root.stream_zoom_y : 0.5);
                                             source: (p.is_self && root.is_screen_sharing) ? root.active_stream_frame : root.remote_stream_frame;
-                                            width: 100%;
-                                            height: 100%;
+                                            width: parent.width * scale;
+                                            height: parent.height * scale;
                                             image-fit: contain;
                                         }
 
@@ -2175,12 +2242,40 @@ export component AppWindow inherits Window {
                                         // Discord behaviour: clicking the stream focuses it (larger).
                                         // The top bar is declared after this, so its buttons still win.
                                         TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => { root.focus_stream(p.user_id); }
+                                            mouse-cursor: root.stream_zoom > 1 && is_this_stream_focused ? MouseCursor.grab : MouseCursor.pointer;
+                                            clicked => {
+                                                if (root.stream_zoom_dragged) {
+                                                    root.stream_zoom_dragged = false;
+                                                } else if (root.stream_zoom <= 1) {
+                                                    root.focus_stream(p.user_id);
+                                                }
+                                            }
                                             pointer-event(event) => {
+                                                if (event.kind == PointerEventKind.down) {
+                                                    root.stream_zoom_dragged = false;
+                                                }
                                                 if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                                                     root.open_user_menu(p.user_id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                                                 }
+                                            }
+                                            moved => {
+                                                if (self.pressed && root.stream_zoom > 1 && is_this_stream_focused) {
+                                                    root.stream_zoom_dragged = true;
+                                                    root.stream_zoom_x = clamp(root.stream_zoom_x - (self.mouse-x - self.pressed-x) / (self.width * (root.stream_zoom - 1)), 0, 1);
+                                                    root.stream_zoom_y = clamp(root.stream_zoom_y - (self.mouse-y - self.pressed-y) / (self.height * (root.stream_zoom - 1)), 0, 1);
+                                                    root.stream_zoom_changed();
+                                                }
+                                            }
+                                            scroll-event(event) => {
+                                                if (!is_this_stream_focused) {
+                                                    return reject;
+                                                }
+                                                if (root.stream_zoom <= 1) {
+                                                    root.stream_zoom_x = clamp(self.mouse-x / self.width, 0, 1);
+                                                    root.stream_zoom_y = clamp(self.mouse-y / self.height, 0, 1);
+                                                }
+                                                root.set_stream_zoom(event.delta-y > 0px ? root.stream_zoom * 1.15 : root.stream_zoom / 1.15);
+                                                return accept;
                                             }
                                         }
 
@@ -3116,6 +3211,8 @@ export component AppWindow inherits Window {
                         has_stream: root.has_active_stream || root.is_screen_sharing;
                         has_stream_audio: root.has_active_stream && root.active_stream_user_id != "" && root.active_stream_user_id != "self";
                         stream_volume: root.active_stream_volume;
+                        zoom: root.stream_zoom;
+                        set_zoom(value) => { root.set_stream_zoom(value); }
                         set_stream_volume(value) => { root.set_stream_volume(root.active_stream_user_id, value); }
                         members_collapsed: root.voice_members_collapsed;
                         strip_visible: root.focused_stream_uid != "" && !root.voice_members_collapsed && root.voice_participants.length > 1;
@@ -5197,6 +5294,72 @@ export component AppWindow inherits Window {
         loss: root.voice_stats_loss;
         quality: root.voice_stats_quality;
         close => { root.voice_stats_toggle(); }
+    }
+
+    if root.server_hover_id != "": ServerHoverCard {
+        x: 76px;
+        y: Math.max(36px, Math.min(root.server_hover_y, root.height - self.height - 8px));
+        z: 50;
+        name: root.server_hover_name;
+        muted: root.server_hover_muted;
+        voice: root.server_hover_voice;
+        voice_extra: root.server_hover_voice_extra;
+        streams: root.server_hover_streams;
+        streams_extra: root.server_hover_streams_extra;
+        avatar_pool: root.avatar_pool;
+        avatar_pool_urls: root.avatar_pool_urls;
+    }
+
+    if root.server_menu_open: ServerMenu {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        menu-x: root.server_menu_x;
+        menu-y: root.server_menu_y;
+        muted: root.server_menu_muted;
+        level: root.server_menu_level;
+        hide-muted: root.server_menu_hide_muted;
+        allow-dms: root.server_menu_allow_dms;
+        owner: root.server_menu_owner;
+        can-manage: root.server_menu_can_manage;
+        can-invite: root.server_menu_can_invite;
+        show-levels <=> root.server_menu_levels;
+        close => { root.server_menu_open = false; }
+        action(name) => { root.server_menu_action(name); }
+    }
+
+    if root.server_nick_open: NickDialog {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        server: root.server_nick_guild;
+        nick <=> root.server_nick_text;
+        error: root.server_nick_error;
+        close => { root.server_nick_open = false; }
+        save => { root.server_menu_action("nick_save"); }
+    }
+
+    if root.audio_menu != "": AudioDeviceMenu {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        left: 80px;
+        title: root.audio_menu == "input" ? "INPUT DEVICE" : "OUTPUT DEVICE";
+        devices: root.audio_menu == "input" ? root.input_devices : root.output_devices;
+        selected: root.audio_menu == "input" ? root.selected_input_device : root.selected_output_device;
+        close => { root.audio_menu = ""; }
+        pick(id) => {
+            if (root.audio_menu == "input") {
+                root.select_input_device(id);
+            } else {
+                root.select_output_device(id);
+            }
+            root.audio_menu = "";
+            root.refresh_audio_devices();
+        }
     }
 
     if root.friends_confirm_text != "": ConfirmDialog {

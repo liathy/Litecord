@@ -663,6 +663,10 @@ fn run_confirmed(ui: &AppWindow, ctx: &Context) {
     let target = ui.get_channel_confirm_id().to_string();
     ui.set_channel_confirm_text("".into());
     let Some(http) = ctx.client() else { return };
+    if action == "leave_guild" {
+        crate::ui::server_tools::leave(ui, ctx, target);
+        return;
+    }
     if action == "unpin" {
         crate::ui::channel_panel::unpin(ui, http, target);
         return;

@@ -1091,6 +1091,11 @@ pub fn build_ui_channels(
                     continue;
                 }
             }
+            if let Some(guild) = crate::ui::read_states::guild_of(&ch.id) {
+                if crate::ui::notifications::hides_muted(&guild) && crate::ui::notifications::is_channel_muted(&guild, &ch.id) {
+                    continue;
+                }
+            }
             let voice_participants = if ch.is_voice {
                 gateway::get_voice_channel_participants(&ch.id)
             } else {

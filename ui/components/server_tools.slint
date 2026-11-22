@@ -1,0 +1,302 @@
+import { LineEdit } from "std-widgets.slint";
+import { AppTheme, TypeScale } from "../theme.slint";
+import { AudioDeviceItem } from "settings_kit.slint";
+
+export struct ServerHoverUser {
+    text: string,
+    url: string,
+    slot: int,
+}
+
+component Row inherits Rectangle {
+    in property <string> text;
+    in property <string> detail;
+    in property <bool> danger;
+    in property <bool> has-check;
+    in property <bool> checked;
+    in property <bool> has-arrow;
+    callback clicked();
+    height: root.detail != "" ? 42px : 32px;
+    border-radius: 4px;
+    background: ta.has-hover ? (root.danger ? AppTheme.danger-action : AppTheme.interactive-selected) : transparent;
+    VerticalLayout {
+        x: 10px;
+        width: parent.width - 44px;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: ta.has-hover && root.danger ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-primary);
+            font-size: TypeScale.small;
+            font-weight: 500;
+            overflow: elide;
+        }
+        if root.detail != "": Text { text: root.detail; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+    }
+    if root.has-arrow: Image {
+        x: parent.width - 26px;
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        source: @image-url("../../assets/chevron-right.svg");
+        colorize: AppTheme.text-secondary;
+    }
+    if root.has-check: Rectangle {
+        x: parent.width - 28px;
+        y: (parent.height - 18px) / 2;
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border-width: 1px;
+        border-color: root.checked ? AppTheme.accent : AppTheme.text-muted;
+        background: root.checked ? AppTheme.accent : transparent;
+        if root.checked: Image {
+            width: 14px;
+            height: 14px;
+            source: @image-url("../../assets/check.svg");
+            colorize: AppTheme.text-on-accent;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component Line inherits Rectangle {
+    height: 9px;
+    Rectangle { y: 4px; height: 1px; background: AppTheme.separator; }
+}
+
+export component ServerMenu inherits Rectangle {
+    in property <length> menu-x;
+    in property <length> menu-y;
+    in property <bool> muted;
+    in property <int> level;
+    in property <bool> hide-muted;
+    in property <bool> allow-dms;
+    in property <bool> owner;
+    in property <bool> can-manage;
+    in property <bool> can-invite;
+    in-out property <bool> show-levels: false;
+    callback close();
+    callback action(string);
+    property <string> level-text: root.level == 0 ? "All Messages" : (root.level == 2 ? "Nothing" : "Only @mentions");
+
+    TouchArea {
+        clicked => { root.close(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) { root.close(); }
+        }
+    }
+
+    Rectangle {
+        x: Math.max(8px, Math.min(root.menu-x, root.width - self.width - 8px));
+        y: Math.max(8px, Math.min(root.menu-y, root.height - self.height - 8px));
+        width: 240px;
+        height: Math.min(list.preferred-height, root.height - 16px);
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        clip: true;
+        TouchArea { }
+        list := VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            alignment: start;
+            if root.show-levels: Row { text: "‹ Back"; clicked => { root.show-levels = false; } }
+            if root.show-levels: Line { }
+            if root.show-levels: Row { text: "All Messages"; has-check: true; checked: root.level == 0; clicked => { root.action("level:0"); } }
+            if root.show-levels: Row { text: "Only @mentions"; has-check: true; checked: root.level == 1; clicked => { root.action("level:1"); } }
+            if root.show-levels: Row { text: "Nothing"; has-check: true; checked: root.level == 2; clicked => { root.action("level:2"); } }
+
+            if !root.show-levels: Row { text: "Mark As Read"; clicked => { root.action("mark_read"); } }
+            if !root.show-levels: Line { }
+            if !root.show-levels && root.can-invite: Row { text: "Invite to Server"; clicked => { root.action("invite"); } }
+            if !root.show-levels && root.can-invite: Line { }
+            if !root.show-levels: Row { text: root.muted ? "Unmute Server" : "Mute Server"; clicked => { root.action("mute"); } }
+            if !root.show-levels: Row { text: "Notification Settings"; detail: root.level-text; has-arrow: true; clicked => { root.show-levels = true; } }
+            if !root.show-levels: Row { text: "Hide Muted Channels"; has-check: true; checked: root.hide-muted; clicked => { root.action("hide_muted"); } }
+            if !root.show-levels: Line { }
+            if !root.show-levels && root.owner: Row { text: "Server Settings"; clicked => { root.action("server_settings"); } }
+            if !root.show-levels: Row { text: "Allow DMs from Members"; has-check: true; checked: root.allow-dms; clicked => { root.action("privacy"); } }
+            if !root.show-levels: Row { text: "Edit Per-server Profile"; clicked => { root.action("nick"); } }
+            if !root.show-levels && root.can-manage: Line { }
+            if !root.show-levels && root.can-manage: Row { text: "Create Channel"; clicked => { root.action("create_channel"); } }
+            if !root.show-levels && root.can-manage: Row { text: "Create Category"; clicked => { root.action("create_category"); } }
+            if !root.show-levels && root.can-manage: Row { text: "Create Event"; clicked => { root.action("create_event"); } }
+            if !root.show-levels && !root.owner: Line { }
+            if !root.show-levels && !root.owner: Row { text: "Leave Server"; danger: true; clicked => { root.action("ask_leave"); } }
+            if !root.show-levels: Line { }
+            if !root.show-levels: Row { text: "Copy Server ID"; clicked => { root.action("copy_id"); } }
+        }
+    }
+}
+
+export component NickDialog inherits Rectangle {
+    in property <string> server;
+    in-out property <string> nick;
+    in property <string> error;
+    callback close();
+    callback save();
+    background: AppTheme.backdrop-soft;
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        width: 420px;
+        height: box.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        TouchArea { }
+        box := VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+            Text { text: "Server Nickname"; color: AppTheme.text-strong; font-size: TypeScale.title; font-weight: 700; }
+            Text { text: root.server; color: AppTheme.text-muted; font-size: TypeScale.caption; overflow: elide; }
+            LineEdit { text <=> root.nick; placeholder-text: "Leave empty to use your display name"; accepted => { root.save(); } }
+            if root.error != "": Text { text: root.error; color: AppTheme.danger; font-size: TypeScale.small; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Rectangle {
+                    width: 88px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: cancel_ta.has-hover ? AppTheme.interactive-selected : AppTheme.interactive-muted;
+                    Text { text: "Cancel"; color: AppTheme.text-strong; font-size: TypeScale.small; font-weight: 600; }
+                    cancel_ta := TouchArea { mouse-cursor: pointer; clicked => { root.close(); } }
+                }
+                Rectangle {
+                    width: 88px;
+                    height: 36px;
+                    border-radius: 6px;
+                    background: save_ta.has-hover ? AppTheme.accent-hover : AppTheme.accent;
+                    Text { text: "Save"; color: AppTheme.text-on-accent; font-size: TypeScale.small; font-weight: 600; }
+                    save_ta := TouchArea { mouse-cursor: pointer; clicked => { root.save(); } }
+                }
+            }
+        }
+    }
+}
+
+component AvatarRow inherits HorizontalLayout {
+    in property <image> icon;
+    in property <[ServerHoverUser]> users;
+    in property <int> extra;
+    in property <[image]> avatar_pool;
+    in property <[string]> avatar_pool_urls;
+    spacing: 4px;
+    height: 26px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        Image { width: 18px; height: 18px; source: root.icon; colorize: AppTheme.text-secondary; }
+    }
+    Rectangle { width: 4px; }
+    for user in root.users: Rectangle {
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        background: AppTheme.interactive-selected;
+        clip: true;
+        Text { text: user.text; color: AppTheme.text-primary; font-size: TypeScale.micro; font-weight: 700; }
+        if user.url != "" && root.avatar_pool_urls[user.slot] == user.url: Image {
+            source: root.avatar_pool[user.slot];
+            width: 100%;
+            height: 100%;
+            image-fit: cover;
+        }
+    }
+    if root.extra > 0: Rectangle {
+        width: 34px;
+        height: 24px;
+        border-radius: 12px;
+        background: AppTheme.surface-input;
+        Text { text: "+" + root.extra; color: AppTheme.text-primary; font-size: TypeScale.micro; font-weight: 700; }
+    }
+}
+
+export component ServerHoverCard inherits Rectangle {
+    in property <string> name;
+    in property <bool> muted;
+    in property <[ServerHoverUser]> voice;
+    in property <int> voice_extra;
+    in property <[ServerHoverUser]> streams;
+    in property <int> streams_extra;
+    in property <[image]> avatar_pool;
+    in property <[string]> avatar_pool_urls;
+    width: 230px;
+    height: box.preferred-height;
+    border-radius: 8px;
+    background: AppTheme.surface-elevated;
+    border-width: 1px;
+    border-color: AppTheme.border-subtle;
+    drop-shadow-blur: 10px;
+    drop-shadow-color: AppTheme.surface-scrim;
+    box := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        Text { text: root.name; color: AppTheme.text-strong; font-size: TypeScale.body; font-weight: 700; wrap: word-wrap; }
+        if root.voice.length > 0: AvatarRow {
+            icon: @image-url("../../assets/speaker.svg");
+            users: root.voice;
+            extra: root.voice_extra;
+            avatar_pool: root.avatar_pool;
+            avatar_pool_urls: root.avatar_pool_urls;
+        }
+        if root.streams.length > 0: AvatarRow {
+            icon: @image-url("../../assets/monitor.svg");
+            users: root.streams;
+            extra: root.streams_extra;
+            avatar_pool: root.avatar_pool;
+            avatar_pool_urls: root.avatar_pool_urls;
+        }
+        if root.muted: Text { text: "Muted"; color: AppTheme.text-muted; font-size: TypeScale.caption; font-weight: 600; }
+    }
+}
+
+export component AudioDeviceMenu inherits Rectangle {
+    in property <string> title;
+    in property <[AudioDeviceItem]> devices;
+    in property <string> selected;
+    in property <length> left;
+    callback close();
+    callback pick(string);
+    TouchArea { clicked => { root.close(); } }
+    Rectangle {
+        x: root.left;
+        y: root.height - self.height - 66px;
+        width: 300px;
+        height: Math.min(list.preferred-height, root.height - 90px);
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: AppTheme.surface-scrim;
+        clip: true;
+        TouchArea { }
+        list := VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            alignment: start;
+            Text {
+                height: 26px;
+                text: root.title;
+                color: AppTheme.text-muted;
+                font-size: TypeScale.micro;
+                font-weight: 800;
+                vertical-alignment: center;
+            }
+            for device in root.devices: Row {
+                text: device.name;
+                has-check: true;
+                checked: device.is_selected || device.name == root.selected;
+                clicked => { root.pick(device.id); }
+            }
+        }
+    }
+}

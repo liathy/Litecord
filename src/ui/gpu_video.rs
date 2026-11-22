@@ -27,6 +27,7 @@ thread_local! {
     static LAYERS: RefCell<Windows> = const { RefCell::new(Windows { main: None, popout: None }) };
     /// The remote stream area in the main window, physical pixels (zero: not shown).
     static VIEWPORT: Cell<(i32, i32, u32, u32)> = const { Cell::new((0, 0, 0, 0)) };
+    static ZOOM: Cell<(f32, f32, f32)> = const { Cell::new((1.0, 0.5, 0.5)) };
 }
 
 /// Hooks the layers into both windows (once the native windows exist).
@@ -68,13 +69,50 @@ pub fn viewport_changed(app: &AppWindow, popout: Option<&PopoutStreamWindow>, x:
     let k = app.window().scale_factor();
     let rect = ((x * k).round() as i32, (y * k).round() as i32, (w * k).round().max(0.0) as u32, (h * k).round().max(0.0) as u32);
     VIEWPORT.with(|v| v.set(rect));
-    #[cfg(windows)]
-    LAYERS.with(|l| {
-        if let Some(m) = l.borrow().main.as_ref() {
-            m.set_video_rect(rect.0, rect.1, rect.2, rect.3);
-        }
-    });
+    apply_zoom();
     refresh(app, popout);
+}
+
+/// The picture grows past its area and the area's hole crops it.
+fn zoomed(rect: (i32, i32, u32, u32), (scale, focus_x, focus_y): (f32, f32, f32)) -> (i32, i32, u32, u32) {
+    let (x, y, w, h) = rect;
+    let extra_w = w as f32 * (scale - 1.0);
+    let extra_h = h as f32 * (scale - 1.0);
+    (x - (extra_w * focus_x).round() as i32, y - (extra_h * focus_y).round() as i32, (w as f32 * scale).round() as u32, (h as f32 * scale).round() as u32)
+}
+
+fn apply_zoom() {
+    #[cfg(windows)]
+    {
+        let rect = zoomed(VIEWPORT.with(|v| v.get()), ZOOM.with(|z| z.get()));
+        LAYERS.with(|l| {
+            if let Some(m) = l.borrow().main.as_ref() {
+                m.set_video_rect(rect.0, rect.1, rect.2, rect.3);
+            }
+        });
+    }
+}
+
+/// The user zoomed or moved the stream.
+pub fn set_zoom(scale: f32, focus_x: f32, focus_y: f32) {
+    ZOOM.with(|z| z.set((scale.clamp(1.0, 5.0), focus_x.clamp(0.0, 1.0), focus_y.clamp(0.0, 1.0))));
+    apply_zoom();
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::zoomed;
+
+    #[test]
+    fn no_zoom_keeps_the_area() {
+        assert_eq!(zoomed((10, 20, 100, 50), (1.0, 0.5, 0.5)), (10, 20, 100, 50));
+    }
+
+    #[test]
+    fn zoom_centers_on_the_chosen_spot() {
+        assert_eq!(zoomed((0, 0, 100, 100), (2.0, 0.5, 0.5)), (-50, -50, 200, 200));
+        assert_eq!(zoomed((0, 0, 100, 100), (2.0, 1.0, 0.0)), (-100, 0, 200, 200));
+    }
 }
 
 /// The popout changed size (physical pixels): the video fills it.

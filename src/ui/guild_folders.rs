@@ -260,6 +260,14 @@ fn render(ui: &AppWindow, rail: &Rail) {
     ui.set_guilds(ModelRc::new(VecModel::from(rows)));
 }
 
+/// The account left this server.
+pub fn remove_guild(ui: &AppWindow, guild: &str) {
+    RAIL.with_borrow_mut(|rail| {
+        rail.guilds.retain(|item| item.id != guild);
+        render(ui, rail);
+    });
+}
+
 /// Discord's mute settings changed.
 pub fn refresh_mutes(ui: &AppWindow) {
     RAIL.with_borrow(|rail| {

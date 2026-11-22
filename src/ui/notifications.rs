@@ -25,6 +25,8 @@ struct GuildMutes {
     is_muted: bool,
     muted_channels: HashSet<String>,
     levels: HashMap<String, u64>,
+    guild_level: u64,
+    hide_muted: bool,
 }
 
 static SETTINGS: Mutex<Option<HashMap<String, GuildMutes>>> = Mutex::new(None);
@@ -72,6 +74,8 @@ fn parse_entry(entry: &Value, now: chrono::DateTime<chrono::Utc>) -> (String, Gu
             is_muted: mute_is_active(entry, now),
             muted_channels,
             levels,
+            guild_level: entry["message_notifications"].as_u64().filter(|level| *level <= NOTHING).unwrap_or(1),
+            hide_muted: entry["hide_muted_channels"].as_bool().unwrap_or(false),
         },
     )
 }
@@ -144,6 +148,40 @@ pub fn is_muted_anywhere(channel: &str) -> bool {
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .is_some_and(|map| map.values().any(|entry| holds(&entry.muted_channels, channel, parent.as_deref())))
+}
+
+pub fn guild_level(guild: &str) -> u64 {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(settings_key(guild)))
+        .map_or(1, |entry| entry.guild_level)
+}
+
+pub fn hides_muted(guild: &str) -> bool {
+    SETTINGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|map| map.get(settings_key(guild)))
+        .is_some_and(|entry| entry.hide_muted)
+}
+
+/// Shows a server setting at once; Discord's update confirms it afterwards.
+pub fn set_local_guild(guild: &str, muted: Option<bool>, level: Option<u64>, hide_muted: Option<bool>) {
+    let mut store = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+    let entry = store.get_or_insert_with(HashMap::new).entry(settings_key(guild).to_owned()).or_default();
+    if let Some(muted) = muted {
+        entry.is_muted = muted;
+    }
+    if let Some(level) = level {
+        entry.guild_level = level;
+    }
+    if let Some(hide) = hide_muted {
+        entry.hide_muted = hide;
+    }
+    entry.muted = entry.is_muted || entry.guild_level == NOTHING;
 }
 
 pub fn channel_level(guild: &str, channel: &str) -> u64 {

@@ -1677,6 +1677,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             crate::ui::voice_flags::show_stream_volume(&ui, uid_str.as_str(), vol);
         }
     });
+    let app_weak_stream_zoom = app_weak.clone();
+    app.on_stream_zoom_changed(move || {
+        if let Some(ui) = app_weak_stream_zoom.upgrade() {
+            crate::ui::gpu_video::set_zoom(ui.get_stream_zoom(), ui.get_stream_zoom_x(), ui.get_stream_zoom_y());
+        }
+    });
     let app_weak_stream_vol_sync = app_weak.clone();
     app.on_refresh_stream_volume(move || {
         if let Some(ui) = app_weak_stream_vol_sync.upgrade() {
@@ -2273,6 +2279,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 });
             });
         }
+    });
+
+    let app_weak_audio_menu = app_weak.clone();
+    app.on_refresh_audio_devices(move || {
+        let app = app_weak_audio_menu.clone();
+        tokio::task::spawn_blocking(move || {
+            let (inputs, outputs) = enumerate_audio_devices();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = app.upgrade() else { return };
+                let items = |names: &[String], selected: &str| -> Vec<AudioDeviceItem> {
+                    names.iter().enumerate().map(|(index, name)| AudioDeviceItem {
+                        id: name.as_str().into(),
+                        name: name.as_str().into(),
+                        is_selected: if selected.is_empty() { index == 0 } else { name == selected },
+                    }).collect()
+                };
+                let (input, output) = (ui.get_selected_input_device().to_string(), ui.get_selected_output_device().to_string());
+                ui.set_input_devices(std::rc::Rc::new(slint::VecModel::from(items(&inputs, &input))).into());
+                ui.set_output_devices(std::rc::Rc::new(slint::VecModel::from(items(&outputs, &output))).into());
+            });
+        });
     });
 
     let app_weak_close_settings = app_weak.clone();
@@ -4482,6 +4509,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::ui::voice_stats::install(&app);
     crate::ui::friends::install(&app, Arc::clone(&http_client), Arc::clone(&active_channel_id));
     crate::ui::image_viewer::install(&app);
+    crate::ui::server_tools::install(&app, crate::ui::channel_tools::Context {
+        http: Arc::clone(&http_client),
+        guilds: Arc::clone(&guilds_map),
+        active_guild: Arc::clone(&active_guild_id),
+        active_channel: Arc::clone(&active_channel_id),
+    });
     crate::ui::channel_panel::install(&app, crate::ui::channel_tools::Context {
         http: Arc::clone(&http_client),
         guilds: Arc::clone(&guilds_map),

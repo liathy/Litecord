@@ -59,6 +59,29 @@ component CallGroup inherits Rectangle {
     }
 }
 
+component StreamMenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger;
+    callback clicked();
+    height: 32px;
+    border-radius: 4px;
+    background: row_ta.has-hover ? (root.danger ? AppTheme.danger-action : AppTheme.interactive-selected) : transparent;
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        color: row_ta.has-hover && root.danger ? AppTheme.text-on-accent : (root.danger ? AppTheme.danger : AppTheme.text-primary);
+        font-size: TypeScale.small;
+        font-weight: 500;
+        vertical-alignment: center;
+    }
+    row_ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
 // Click the icon to mute or unmute the stream; hover it for a large vertical slider.
 export component StreamVolumeControl inherits Rectangle {
     in property <float> volume: 1.0;
@@ -183,6 +206,9 @@ export component CallChrome inherits Rectangle {
     property <bool> volume_active: false;
     out property <bool> pointer_inside: top_ta.has-hover || bottom_ta.has-hover || members_ta.has-hover || (root.has_stream_audio && root.volume_active);
     callback set_stream_volume(float);
+    in property <float> zoom: 1;
+    callback set_zoom(float);
+    property <bool> menu_open: false;
 
     callback toggle_mic();
     callback toggle_headset();
@@ -341,6 +367,12 @@ export component CallChrome inherits Rectangle {
                     set_volume(value) => { root.set_stream_volume(value); }
                 }
                 CallButton {
+                    icon: @image-url("../../assets/more.svg");
+                    label: "More Options";
+                    enabled: root.shown;
+                    clicked => { root.menu_open = !root.menu_open; }
+                }
+                CallButton {
                     icon: @image-url("../../assets/popout.svg");
                     label: "Pop Out";
                     enabled: root.shown;
@@ -353,6 +385,32 @@ export component CallChrome inherits Rectangle {
                     clicked => { root.fullscreen(); }
                 }
             }
+        }
+    }
+
+    if root.menu_open && root.has_stream: TouchArea {
+        clicked => { root.menu_open = false; }
+    }
+    if root.menu_open && root.has_stream: Rectangle {
+        x: root.width - self.width - 12px;
+        y: root.height - self.height - 62px;
+        width: 210px;
+        height: stream_menu.preferred-height;
+        border-radius: 8px;
+        background: AppTheme.surface-elevated;
+        border-width: 1px;
+        border-color: AppTheme.border-subtle;
+        TouchArea { }
+        stream_menu := VerticalLayout {
+            padding: 6px;
+            spacing: 1px;
+            StreamMenuRow { text: "Zoom In"; clicked => { root.set_zoom(root.zoom + 0.5); } }
+            StreamMenuRow { text: "Zoom Out"; clicked => { root.set_zoom(root.zoom - 0.5); } }
+            StreamMenuRow { text: "Reset Zoom (" + Math.round(root.zoom * 100) + "%)"; clicked => { root.set_zoom(1); root.menu_open = false; } }
+            Rectangle { height: 9px; Rectangle { y: 4px; height: 1px; background: AppTheme.separator; } }
+            StreamMenuRow { text: "Pop Out"; clicked => { root.menu_open = false; root.pop_out(); } }
+            StreamMenuRow { text: "Full Screen"; clicked => { root.menu_open = false; root.fullscreen(); } }
+            if root.watching_focused_stream: StreamMenuRow { text: "Stop Watching"; danger: true; clicked => { root.menu_open = false; root.stop_watching(); } }
         }
     }
 
