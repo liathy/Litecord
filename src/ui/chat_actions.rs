@@ -855,6 +855,35 @@ fn toggle_favorite(ui: &AppWindow, http: DiscordHttpClient, animation: String) {
 }
 
 /// Loads the hovered stream's preview from Discord.
+fn open_stream(ui: &AppWindow, user_id: &str) {
+    ui.invoke_unhide_stream(user_id.into());
+    ui.set_focused_stream_uid(user_id.into());
+    ui.set_is_voice_focused(true);
+}
+
+/// Time for a call joined from the preview card to connect before asking for its stream.
+const JOIN_BEFORE_WATCH: std::time::Duration = std::time::Duration::from_millis(2500);
+
+/// Watch Stream on the preview card: joins the streamer's call first if it's another one.
+pub fn watch_preview(ui: &AppWindow, user_id: &str) {
+    let Ok(numeric) = user_id.parse::<u64>() else { return };
+    let target = crate::gateway::get_guild_voice_states_store().lock().ok().and_then(|states| states.get(&numeric).cloned()).unwrap_or_default();
+    let mine = crate::gateway::get_my_voice_channel_id().to_string();
+    if target.is_empty() || target == mine {
+        open_stream(ui, user_id);
+        return;
+    }
+    ui.invoke_select_channel(target.as_str().into());
+    let (app, user) = (ui.as_weak(), user_id.to_owned());
+    slint::Timer::single_shot(JOIN_BEFORE_WATCH, move || {
+        if let Some(ui) = app.upgrade() {
+            if crate::gateway::get_my_voice_channel_id().to_string() == target {
+                open_stream(&ui, &user);
+            }
+        }
+    });
+}
+
 pub fn stream_hover(ui: &AppWindow, http: Option<DiscordHttpClient>, user_id: &str) {
     ui.set_stream_preview_has_image(false);
     let (Some(http), guild, channel) = (http, crate::gateway::get_my_voice_guild_id(), crate::gateway::get_guild_voice_states_store().lock().ok().and_then(|m| m.get(&user_id.parse::<u64>().unwrap_or(0)).cloned()).unwrap_or_default()) else { return };

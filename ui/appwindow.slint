@@ -858,6 +858,7 @@ export component AppWindow inherits Window {
     in-out property <image> stream_preview_image;
     in-out property <bool> stream_preview_has_image: false;
     callback stream_row_hovered(string);
+    callback watch_preview_stream(string);
     in-out property <string> profile_user_id;
     in-out property <string> profile_mutual;
     in-out property <bool> profile_has_status: false;
@@ -4834,10 +4835,9 @@ export component AppWindow inherits Window {
         has_preview: root.stream_preview_has_image;
         watching: root.active_stream_user_id == root.stream_preview_uid && root.has_active_stream;
         watch => {
-            root.unhide_stream(root.stream_preview_uid);
             root.stream_row_hover_active = false;
             root.stream_preview_shown = false;
-            if (!root.is_voice_focused) { root.toggle_voice_focus(); }
+            root.watch_preview_stream(root.stream_preview_uid);
         }
     }
 

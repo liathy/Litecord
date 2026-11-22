@@ -4572,6 +4572,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             crate::ui::chat_actions::stream_hover(&ui, http, user_id.as_str());
         }
     });
+    let app_weak_watch_preview = app_weak.clone();
+    app.on_watch_preview_stream(move |user_id| {
+        if let Some(ui) = app_weak_watch_preview.upgrade() {
+            crate::ui::chat_actions::watch_preview(&ui, user_id.as_str());
+        }
+    });
     let app_weak_profile_dm = app_weak.clone();
     let http_profile_dm = Arc::clone(&http_client);
     let active_channel_profile_dm = Arc::clone(&active_channel_id);

@@ -1127,6 +1127,7 @@ pub fn build_ui_channels(
                 let is_self_member = user_id == 999999 || (my_uid != 0 && user_id == my_uid);
                 ui_channels.push(ChannelItem {
                     id: format!("voice-member:{}:{}", ch.id, user_id).into(),
+                    member_user_id: user_id.to_string().into(),
                     name: crate::utils::styled_text::plain_display_name(&name).as_ref().into(),
                     is_voice: false,
                     voice_count: 0,

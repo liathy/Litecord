@@ -28,6 +28,7 @@ export struct ChannelItem {
     emoji_slot: int,    // index into `emoji_pool`
     label: string,
     emoji_prefix: string,
+    member_user_id: string,
     dm_user: string,
     has_status: bool,
     status_color: color,
@@ -557,7 +558,7 @@ export component ChannelSidebar inherits Rectangle {
                             mouse-cursor: pointer;
                             changed has-hover => {
                                 if (channel.is_voice_member && channel.is_streaming && !channel.is_self_member) {
-                                    root.stream_row_hover(channel.id, channel.name, self.absolute-position.y, self.has-hover);
+                                    root.stream_row_hover(channel.member_user_id, channel.name, self.absolute-position.y, self.has-hover);
                                 }
                             }
                             pointer-event(event) => {
